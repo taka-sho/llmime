@@ -37,20 +37,25 @@ fi
 if [[ ! -f "${READING_CORPUS}" ]]; then
     echo "[INFO] Running morphological analysis with Vibrato..."
 
-    if ! command -v vibrato &>/dev/null; then
-        echo "[ERROR] 'vibrato' command not found. Build from https://github.com/daac-tools/vibrato" >&2
+    if ! command -v tokenize &>/dev/null; then
+        echo "[ERROR] 'tokenize' command (vibrato) not found." >&2
+        echo "[INFO]  Run: bash scripts/setup_dict.sh" >&2
         exit 1
     fi
 
-    UNIDIC_SYSTEM="${VIBRATO_DICT:-/usr/local/share/vibrato/system.dic}"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    _DEFAULT_DICT="${REPO_ROOT}/dict/unidic-cwj-3_1_1/system.dic.zst"
+    UNIDIC_SYSTEM="${VIBRATO_DICT:-${_DEFAULT_DICT}}"
     if [[ ! -f "${UNIDIC_SYSTEM}" ]]; then
-        echo "[ERROR] UniDic-lite system.dic not found: ${UNIDIC_SYSTEM}" >&2
-        echo "[INFO]  Set VIBRATO_DICT=/path/to/system.dic" >&2
+        echo "[ERROR] UniDic system.dic.zst not found: ${UNIDIC_SYSTEM}" >&2
+        echo "[INFO]  Run: bash scripts/setup_dict.sh" >&2
+        echo "[INFO]  Or set: export VIBRATO_DICT=/path/to/system.dic.zst" >&2
         exit 1
     fi
 
     find "${EXTRACTED_DIR}" -type f | sort | xargs cat | \
-        vibrato tokenize -i "${UNIDIC_SYSTEM}" --output-format wakati-yomi \
+        tokenize -i "${UNIDIC_SYSTEM}" -O wakati \
         > "${READING_CORPUS}"
     echo "[INFO] Corpus saved: ${READING_CORPUS}"
 else
