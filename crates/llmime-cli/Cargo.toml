@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 llmime-core = { path = "../llmime-core" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 serde_json = "1"
 
