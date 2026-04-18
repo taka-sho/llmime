@@ -1,0 +1,6 @@
+[workspace]
+members = ["crates/llmime-core", "crates/llmime-cli"]
+resolver = "2"
+
+[workspace.dependencies]
+# 後続タスクで各クレートが追加する

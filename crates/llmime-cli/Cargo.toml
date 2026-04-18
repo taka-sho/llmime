@@ -1,0 +1,7 @@
+[package]
+name = "llmime-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llmime-core = { path = "../llmime-core" }
