@@ -144,11 +144,12 @@ class VibratoTokenizer:
     def __init__(self, dict_path: Path):
         self._dict_path = dict_path
         import shutil
-        self._vibrato_bin = shutil.which("vibrato") or shutil.which("vibrato-tokenize")
+        self._vibrato_bin = shutil.which("tokenize")
         if not self._vibrato_bin:
             raise RuntimeError(
-                f"'vibrato' CLI not found. Build from https://github.com/daac-tools/vibrato\n"
-                f"and ensure the binary is on PATH. Dict: {dict_path}"
+                f"'tokenize' CLI (vibrato) not found.\n"
+                f"Install: cargo install --git https://github.com/daac-tools/vibrato tokenize\n"
+                f"Dict: {dict_path}"
             )
         if not dict_path.exists():
             raise RuntimeError(f"Vibrato dict not found: {dict_path}")
@@ -162,7 +163,7 @@ class VibratoTokenizer:
         context_text = (context_left + reading) if context_left else reading
         try:
             result = subprocess.run(
-                [self._vibrato_bin, "-d", str(self._dict_path), "-O", "wakati"],
+                [self._vibrato_bin, "-i", str(self._dict_path), "-O", "wakati"],
                 input=context_text,
                 capture_output=True,
                 text=True,
