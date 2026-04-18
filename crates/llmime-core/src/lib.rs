@@ -3,5 +3,5 @@ pub mod morphology;
 pub mod scoring;
 
 pub use lm::{KenLMModel, LanguageModel};
-pub use morphology::Morpheme;
+pub use morphology::{Morpheme, Tokenizer, VibratoTokenizer};
 pub use scoring::CandidateScore;

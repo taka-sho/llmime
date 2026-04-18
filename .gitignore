@@ -3,3 +3,6 @@
 *.klm
 data/
 models/
+dict/
+*.dic
+
