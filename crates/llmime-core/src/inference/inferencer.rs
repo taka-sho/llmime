@@ -28,6 +28,10 @@ pub trait Inferencer: Send + Sync + 'static {
         candidates: Vec<CandidateWithScore>,
         left_context: Option<&str>,
     ) -> Result<Vec<CandidateWithScore>, InferenceError>;
+
+    async fn warmup(&self) -> Result<(), InferenceError> {
+        Ok(())
+    }
 }
 
 pub type DynInferencer = Arc<dyn Inferencer>;

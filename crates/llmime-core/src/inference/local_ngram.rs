@@ -70,6 +70,20 @@ impl Inferencer for LocalNgramInferencer {
         });
         Ok(candidates)
     }
+
+    async fn warmup(&self) -> Result<(), InferenceError> {
+        if self.model_path.as_os_str().is_empty() {
+            return Err(InferenceError::Unavailable(
+                "model_path not set".to_string(),
+            ));
+        }
+        if !self.model_path.exists() {
+            return Err(InferenceError::Unavailable(
+                self.model_path.display().to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
