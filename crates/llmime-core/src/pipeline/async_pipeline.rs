@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{sleep, Duration};
@@ -29,6 +30,7 @@ impl Default for PipelineConfig {
 
 pub struct AsyncPipeline {
     sender: mpsc::Sender<PipelineRequest>,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl AsyncPipeline {
@@ -36,10 +38,25 @@ impl AsyncPipeline {
         let (tx, rx) = mpsc::channel(config.buffer_size);
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
         let debounce = Duration::from_millis(config.debounce_ms);
+        let cancel_flag = Arc::new(AtomicBool::new(false));
 
-        tokio::spawn(Self::run_worker(rx, inferencer, semaphore, debounce));
+        tokio::spawn(Self::run_worker(
+            rx,
+            inferencer,
+            semaphore,
+            debounce,
+            cancel_flag.clone(),
+        ));
 
-        Self { sender: tx }
+        Self {
+            sender: tx,
+            cancel_flag,
+        }
+    }
+
+    /// Cancel the request currently waiting in the debounce window.
+    pub fn cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Release);
     }
 
     pub async fn submit(&self, input: String) -> Result<PipelineResult, InferenceError> {
@@ -60,6 +77,7 @@ impl AsyncPipeline {
         inferencer: Arc<dyn Inferencer>,
         semaphore: Arc<Semaphore>,
         debounce: Duration,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         loop {
             let mut current = match rx.recv().await {
@@ -92,6 +110,12 @@ impl AsyncPipeline {
                         _ = sleep(debounce) => break,
                     }
                 }
+            }
+
+            // Honour an explicit cancel() call that arrived during the debounce window.
+            if cancel_flag.swap(false, Ordering::AcqRel) {
+                let _ = current.response_tx.send(Err(InferenceError::Cancelled));
+                continue;
             }
 
             let permit: OwnedSemaphorePermit = semaphore.clone().acquire_owned().await.unwrap();

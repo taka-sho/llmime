@@ -10,4 +10,6 @@ pub enum InferenceError {
     InputTooLong(usize),
     #[error("consent required for cloud inference")]
     ConsentRequired,
+    #[error("inference cancelled")]
+    Cancelled,
 }
