@@ -2,10 +2,22 @@
 //! All TSF-specific code is gated behind #[cfg(target_os = "windows")].
 
 #[cfg(target_os = "windows")]
+mod state;
+
+#[cfg(target_os = "windows")]
+mod key_sink;
+
+#[cfg(target_os = "windows")]
+pub mod text_store;
+
+#[cfg(target_os = "windows")]
 mod tsf;
 
 #[cfg(target_os = "windows")]
-pub use tsf::TextInputProcessor;
+mod dll;
 
 #[cfg(target_os = "windows")]
-mod dll;
+pub use text_store::LlmimeTextStore;
+
+#[cfg(target_os = "windows")]
+pub use tsf::{TextInputProcessor, CLSID_LLMIME_TSF};

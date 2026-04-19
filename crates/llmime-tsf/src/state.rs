@@ -1,0 +1,45 @@
+use std::sync::{Arc, Mutex};
+
+/// UTF-16 preedit buffer and cursor state shared between TSF components.
+#[derive(Default)]
+pub struct CompositionState {
+    /// Current preedit (uncommitted) text in UTF-16.
+    pub preedit: Vec<u16>,
+    /// ACP cursor position (end of preedit = preedit.len() as i32).
+    pub cursor: i32,
+}
+
+impl CompositionState {
+    pub fn is_composing(&self) -> bool {
+        !self.preedit.is_empty()
+    }
+
+    pub fn append_char(&mut self, ch: u16) {
+        self.preedit.push(ch);
+        self.cursor = self.preedit.len() as i32;
+    }
+
+    pub fn backspace(&mut self) {
+        if !self.preedit.is_empty() {
+            self.preedit.pop();
+            self.cursor = self.preedit.len() as i32;
+        }
+    }
+
+    pub fn commit(&mut self) -> Vec<u16> {
+        let committed = std::mem::take(&mut self.preedit);
+        self.cursor = 0;
+        committed
+    }
+
+    pub fn cancel(&mut self) {
+        self.preedit.clear();
+        self.cursor = 0;
+    }
+}
+
+pub type SharedState = Arc<Mutex<CompositionState>>;
+
+pub fn new_shared_state() -> SharedState {
+    Arc::new(Mutex::new(CompositionState::default()))
+}
