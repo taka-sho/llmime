@@ -7,26 +7,34 @@ fn version_exits_zero() {
 }
 
 #[test]
-fn convert_outputs_todo() {
+fn convert_requires_model_arg() {
     let mut cmd = Command::cargo_bin("llmime").unwrap();
-    cmd.args(["convert", "こんにちは"])
+    cmd.args(["convert", "かんしん"])
+        .env_remove("LLMIME_MODEL")
+        .env_remove("LLMIME_DICT")
         .assert()
-        .success()
-        .stdout(predicates::str::contains("TODO:"));
+        .failure();
 }
 
 #[test]
-fn convert_top_k_flag_parsed() {
+fn convert_top_k_flag_accepted() {
+    // Parses --top-k, then fails on missing --model (expected)
     let mut cmd = Command::cargo_bin("llmime").unwrap();
     cmd.args(["convert", "--top-k", "3", "てすと"])
+        .env_remove("LLMIME_MODEL")
+        .env_remove("LLMIME_DICT")
         .assert()
-        .success();
+        .failure()
+        .stderr(predicates::str::contains("model path is required"));
 }
 
 #[test]
-fn convert_format_flag_parsed() {
+fn convert_missing_model_shows_helpful_error() {
     let mut cmd = Command::cargo_bin("llmime").unwrap();
-    cmd.args(["convert", "--format", "json", "てすと"])
+    cmd.args(["convert", "てすと"])
+        .env_remove("LLMIME_MODEL")
+        .env_remove("LLMIME_DICT")
         .assert()
-        .success();
+        .failure()
+        .stderr(predicates::str::contains("model path is required"));
 }
