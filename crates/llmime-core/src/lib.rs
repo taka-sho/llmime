@@ -8,7 +8,7 @@ pub mod reading_index;
 pub mod scoring;
 pub mod user_dict;
 
-pub use config::LlmimeConfig;
+pub use config::{ConfigError, LlmimeConfig, LocalLlmConfig, WorkersAIConfig};
 pub use history::{HistoryStore, SqliteHistoryStore};
 pub use inference::{
     default_fallback_chain, Dispatcher, DynInferencer, FallbackChain, InferenceError, Inferencer,
