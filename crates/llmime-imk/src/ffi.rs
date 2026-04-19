@@ -107,11 +107,7 @@ pub unsafe extern "C" fn llmime_imk_candidate_selection_changed(
 
 /// Writes the current preedit string into `buf` (null-terminated, max `buf_len` bytes).
 #[no_mangle]
-pub unsafe extern "C" fn llmime_imk_get_preedit(
-    session_id: u64,
-    buf: *mut c_char,
-    buf_len: u32,
-) {
+pub unsafe extern "C" fn llmime_imk_get_preedit(session_id: u64, buf: *mut c_char, buf_len: u32) {
     if buf.is_null() || buf_len == 0 {
         return;
     }
