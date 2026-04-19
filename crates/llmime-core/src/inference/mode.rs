@@ -1,17 +1,12 @@
 use std::path::Path;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
+    #[default]
     Privacy,
     Performance,
     Pro,
-}
-
-impl Default for InputMode {
-    fn default() -> Self {
-        InputMode::Privacy
-    }
 }
 
 impl FromStr for InputMode {
