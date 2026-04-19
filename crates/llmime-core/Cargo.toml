@@ -5,6 +5,12 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 dirs = "5"
 rusqlite = { version = "0.31", features = ["bundled"] }
+thiserror = "1"
+tokio = { version = "1", features = ["rt", "time"] }
 vibrato = "0.5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

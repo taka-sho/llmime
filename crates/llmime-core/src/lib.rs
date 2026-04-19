@@ -1,4 +1,5 @@
 pub mod history;
+pub mod inference;
 pub mod lm;
 pub mod morphology;
 pub mod paths;
