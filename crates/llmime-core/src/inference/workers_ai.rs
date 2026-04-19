@@ -110,6 +110,30 @@ impl Inferencer for WorkersAIInferencer {
         }
     }
 
+    async fn warmup(&self) -> Result<(), InferenceError> {
+        let warmup_timeout = Duration::from_secs(2);
+        let url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
+            self.account_id, self.model_id
+        );
+        let payload = WorkersAIRequest {
+            messages: vec![WorkersAIMessage {
+                role: "user".to_string(),
+                content: "1".to_string(),
+            }],
+        };
+        let request = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.api_token)
+            .json(&payload);
+        tokio::time::timeout(warmup_timeout, request.send())
+            .await
+            .map_err(|_| InferenceError::Unavailable("warmup timeout".to_string()))?
+            .map_err(|e| InferenceError::Unavailable(e.to_string()))?;
+        Ok(())
+    }
+
     async fn rerank(
         &self,
         reading: &str,
