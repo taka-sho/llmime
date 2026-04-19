@@ -8,4 +8,6 @@ pub enum InferenceError {
     Upstream(#[source] anyhow::Error),
     #[error("input too long: {0} tokens")]
     InputTooLong(usize),
+    #[error("consent required for cloud inference")]
+    ConsentRequired,
 }

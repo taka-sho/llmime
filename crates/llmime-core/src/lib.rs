@@ -1,4 +1,5 @@
 pub mod config;
+pub mod consent;
 pub mod history;
 pub mod inference;
 pub mod lm;
@@ -9,6 +10,7 @@ pub mod scoring;
 pub mod user_dict;
 
 pub use config::{ConfigError, LlmimeConfig, LocalLlmConfig, WorkersAIConfig};
+pub use consent::ConsentManager;
 pub use history::{HistoryStore, SqliteHistoryStore};
 pub use inference::{
     default_fallback_chain, Dispatcher, DynInferencer, FallbackChain, InferenceError, Inferencer,

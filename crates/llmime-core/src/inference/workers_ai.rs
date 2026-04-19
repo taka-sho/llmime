@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
+use crate::consent::ConsentManager;
 use crate::inference::{
     capabilities::InferencerCapabilities,
     error::InferenceError,
@@ -16,6 +17,7 @@ pub struct WorkersAIInferencer {
     timeout: Duration,
     client: reqwest::Client,
     retry_config: RetryConfig,
+    consent_manager: Option<ConsentManager>,
 }
 
 impl WorkersAIInferencer {
@@ -27,11 +29,17 @@ impl WorkersAIInferencer {
             timeout: Duration::from_millis(1500),
             client: reqwest::Client::new(),
             retry_config: RetryConfig::default(),
+            consent_manager: None,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    pub fn with_consent_manager(mut self, cm: ConsentManager) -> Self {
+        self.consent_manager = Some(cm);
         self
     }
 
@@ -218,6 +226,12 @@ impl Inferencer for WorkersAIInferencer {
         mut candidates: Vec<CandidateWithScore>,
         left_context: Option<&str>,
     ) -> Result<Vec<CandidateWithScore>, InferenceError> {
+        if let Some(cm) = &self.consent_manager {
+            if !cm.is_consented() {
+                return Err(InferenceError::ConsentRequired);
+            }
+        }
+
         if candidates.is_empty() {
             return Ok(candidates);
         }
