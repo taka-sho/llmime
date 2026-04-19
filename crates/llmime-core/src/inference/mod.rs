@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod capabilities;
 pub mod dispatcher;
 pub mod error;
@@ -9,6 +10,14 @@ pub mod mode;
 pub mod warmup;
 pub mod workers_ai;
 
+pub use builder::default_fallback_chain;
+pub use capabilities::InferencerCapabilities;
+pub use dispatcher::Dispatcher;
+pub use error::InferenceError;
+pub use fallback_chain::FallbackChain;
+pub use inferencer::{CandidateSource, CandidateWithScore, DynInferencer, Inferencer};
+pub use local_llm::LocalLlmInferencer;
 pub use local_ngram::LocalNgramInferencer;
 pub use mode::{InputMode, ModeManager};
 pub use warmup::{WarmupOrchestrator, WarmupStatus};
+pub use workers_ai::WorkersAIInferencer;
