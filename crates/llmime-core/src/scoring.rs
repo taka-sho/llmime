@@ -55,7 +55,11 @@ impl<T: Tokenizer, L: LanguageModel> Scorer for NgramScorer<T, L> {
         }
 
         // Sort descending by score (higher log-prob = better)
-        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         candidates.dedup_by(|a, b| a.surface == b.surface);
         candidates.truncate(top_k);
         Ok(candidates)
@@ -104,10 +108,7 @@ mod tests {
 
     #[test]
     fn scorer_empty_reading_returns_empty() {
-        let scorer = NgramScorer::new(
-            MockTokenizer { tokens: vec![] },
-            MockLM { score_val: -1.0 },
-        );
+        let scorer = NgramScorer::new(MockTokenizer { tokens: vec![] }, MockLM { score_val: -1.0 });
         let result = scorer.score("", 5).unwrap();
         assert!(result.is_empty());
     }
@@ -184,9 +185,10 @@ mod tests {
             Ok(p) => std::path::PathBuf::from(p),
             Err(_) => return,
         };
-        let dict_path = std::path::Path::new(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../dict/system.dic"),
-        );
+        let dict_path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../dict/system.dic"
+        ));
         if !dict_path.exists() || !model_path.exists() {
             return;
         }

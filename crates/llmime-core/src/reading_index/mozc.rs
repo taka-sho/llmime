@@ -50,9 +50,12 @@ impl MozcReadingIndex {
             let surface = cols[4].to_string();
             let pos = lid_to_pos(lid);
 
-            map.entry(reading.clone())
-                .or_default()
-                .push(ReadingEntry { surface, reading, pos, cost });
+            map.entry(reading.clone()).or_default().push(ReadingEntry {
+                surface,
+                reading,
+                pos,
+                cost,
+            });
         }
     }
 }

@@ -59,7 +59,10 @@ mod tests {
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_models_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
-        assert_eq!(paths.models_dir, Path::new("/tmp/llmime_models_test/models"));
+        assert_eq!(
+            paths.models_dir,
+            Path::new("/tmp/llmime_models_test/models")
+        );
     }
 
     #[test]
