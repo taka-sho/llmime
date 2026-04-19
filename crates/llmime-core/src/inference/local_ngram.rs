@@ -1,10 +1,9 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 
 use crate::inference::{
     capabilities::InferencerCapabilities,
     error::InferenceError,
-    inferencer::{CandidateSource, CandidateWithScore, Inferencer},
+    inferencer::{CandidateWithScore, Inferencer},
 };
 
 pub struct LocalNgramInferencer {
@@ -75,7 +74,10 @@ impl Inferencer for LocalNgramInferencer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::inference::inferencer::CandidateSource;
 
     fn make_candidates(surfaces: &[&str]) -> Vec<CandidateWithScore> {
         surfaces
