@@ -340,7 +340,9 @@ def evaluate(
         item_cands.append(normed)
         start = len(all_sentences)
         for cost, surface in normed:
-            sentence = (item.context_left + surface) if item.context_left else surface
+            # Use full context: left + surface + right for richer LM signal.
+            parts = [p for p in (item.context_left, surface, item.context_right) if p]
+            sentence = "".join(parts)
             all_sentences.append(sentence)
         slice_bounds.append((start, len(all_sentences)))
 
@@ -348,12 +350,25 @@ def evaluate(
     print(f"[INFO] Phase 2: batch scoring {len(all_sentences)} sentences ...", file=sys.stderr)
     all_scores = lm.score_batch(all_sentences)
 
+    # Penalty for surface == reading when kanji alternatives exist.
+    # Avoids penalising naturally-hiragana words (e.g. ゆっくり).
+    _PASSTHROUGH_PENALTY = 3.0
+
+    def _has_kanji(s: str) -> bool:
+        return any("\u4e00" <= c <= "\u9fff" for c in s)
+
     # Phase 3: rerank each item
     results = []
     for item, cands, (start, end) in zip(items, item_cands, slice_bounds):
         item_scores = all_scores[start:end]
+        has_kanji_alt = any(_has_kanji(surface) for _, surface in cands)
         scored = [
-            (lm_score - cost_alpha * (cost / 100.0), surface)
+            (
+                lm_score
+                - cost_alpha * (cost / 100.0)
+                - (_PASSTHROUGH_PENALTY if (surface == item.reading and has_kanji_alt) else 0.0),
+                surface,
+            )
             for (cost, surface), lm_score in zip(cands, item_scores)
         ]
         scored.sort(reverse=True)
