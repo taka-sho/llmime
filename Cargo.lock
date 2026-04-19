@@ -584,6 +584,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "llmime-imk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "llmime-core",
+ "log",
+]
+
+[[package]]
 name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
