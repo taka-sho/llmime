@@ -24,7 +24,7 @@ fi
 # Step 2: WikiExtractorで本文抽出
 if [[ ! -d "${EXTRACTED_DIR}" ]]; then
     echo "[INFO] Extracting Wikipedia articles..."
-    python3 -m wikiextractor \
+    python3.9 "$(dirname "${BASH_SOURCE[0]}")/run_wikiextractor.py" \
         --output "${EXTRACTED_DIR}" \
         --processes "$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)" \
         --no-templates \

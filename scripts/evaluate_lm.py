@@ -10,8 +10,6 @@ Usage:
         --output reports/lm_eval_YYYYMMDD.md \
         [--category-filter homophone] \
         [--verbose]
-
-Legacy --vibrato-dict also accepted for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -26,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Try kenlm Python binding; fall back to CLI subprocess if unavailable.
 try:
     import kenlm as _kenlm_mod
     _KENLM_PYTHON = True
@@ -74,6 +73,8 @@ class EvalResult:
 
 
 class LanguageModel:
+    """Wrapper around kenlm (Python binding or CLI)."""
+
     def __init__(self, model_path: Path):
         self._model_path = model_path
         self._model = None
@@ -84,20 +85,34 @@ class LanguageModel:
                 self._model = _kenlm_mod.Model(str(model_path))
                 self._use_python = True
             except Exception as e:
-                print(f"[WARN] kenlm Python binding failed: {e}", file=sys.stderr)
+                print(f"[WARN] kenlm Python binding failed to load model: {e}", file=sys.stderr)
 
-        if not self._use_python and not _find_kenlm_query():
-            raise RuntimeError(
-                "kenlm not available. Install: pip install kenlm or build kenlm CLI."
-            )
+        if not self._use_python:
+            # Fall back to CLI
+            if not _find_kenlm_query():
+                raise RuntimeError(
+                    "kenlm not available: Python binding import failed and 'query' CLI not found.\n"
+                    "Install kenlm: pip install https://github.com/kpu/kenlm/archive/master.zip\n"
+                    "Or build kenlm and ensure 'query' is on PATH."
+                )
+
+    def score(self, sentence: str) -> float:
+        """Return log10 probability for sentence."""
+        if self._use_python:
+            return self._model.score(sentence, bos=True, eos=True)
+        scores = _score_batch_via_cli(self._model_path, [sentence])
+        return scores[0] if scores else float("-inf")
 
     def score_batch(self, sentences: list[str]) -> list[float]:
+        """Return log10 probabilities for multiple sentences (single subprocess call)."""
         if self._use_python:
             return [self._model.score(s, bos=True, eos=True) for s in sentences]
         return _score_batch_via_cli(self._model_path, sentences)
 
     def n_gram_order(self) -> int:
-        return self._model.order if self._use_python else 0
+        if self._use_python:
+            return self._model.order
+        return 0
 
     def file_size_mb(self) -> float:
         return self._model_path.stat().st_size / (1024 * 1024)
@@ -109,6 +124,7 @@ def _find_kenlm_query() -> Optional[str]:
 
 
 def _score_batch_via_cli(model_path: Path, sentences: list[str]) -> list[float]:
+    """Score multiple sentences in one kenlm subprocess call (model loaded once)."""
     query_bin = _find_kenlm_query()
     if not query_bin or not sentences:
         return [float("-inf")] * len(sentences)
@@ -118,7 +134,7 @@ def _score_batch_via_cli(model_path: Path, sentences: list[str]) -> list[float]:
             input="\n".join(sentences) + "\n",
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=60,
         )
         scores = []
         for line in result.stdout.splitlines():
@@ -132,56 +148,11 @@ def _score_batch_via_cli(model_path: Path, sentences: list[str]) -> list[float]:
     return [float("-inf")] * len(sentences)
 
 
-def _lid_to_pos(lid: int) -> str:
-    """Map mozc IPAdic left_id to a POS string (mirrors Rust lid_to_pos)."""
-    if 172 <= lid <= 180:
-        return "助動詞"
-    if lid in (215, 423):
-        return "終助詞"
-    if lid in (591, 633) or 837 <= lid <= 870:
-        return "動詞"
-    if lid in (726, 830, 2418, 2459) or 2467 <= lid <= 2476:
-        return "形容詞"
-    if 168 <= lid <= 720:
-        return "助詞"
-    if 1280 <= lid <= 2671:
-        return "名詞"
-    return "名詞"
-
-
-# POS bigram connection penalty (in mozc cost units, lower = better).
-# Mirrors Rust pos_connection::connection_penalty, scaled to match word costs.
-_POS_PENALTY: dict[tuple[str, str], int] = {
-    # 自然な遷移 (penalty = 0)
-    ("名詞", "助詞"): 0, ("名詞", "助動詞"): 0,
-    ("形容詞", "名詞"): 0, ("形容詞", "助動詞"): 0, ("形容詞", "助詞"): 500,
-    ("動詞", "助詞"): 0, ("動詞", "助動詞"): 0, ("動詞", "終助詞"): 0,
-    ("助詞", "名詞"): 0, ("助詞", "動詞"): 0, ("助詞", "形容詞"): 0,
-    ("助動詞", "終助詞"): 0, ("助動詞", "助詞"): 500,
-    # 可能だが稀な遷移
-    ("名詞", "動詞"): 1000, ("名詞", "形容詞"): 1000, ("名詞", "名詞"): 1500,
-    ("形容詞", "形容詞"): 1500, ("動詞", "動詞"): 2000,
-    ("助動詞", "名詞"): 1500, ("助動詞", "動詞"): 1500,
-    # 悪い遷移
-    ("助詞", "助詞"): 5000, ("助詞", "助動詞"): 3000,
-}
-_POS_PENALTY_DEFAULT = 2500
-_POS_PENALTY_SENT_FINAL_NEXT = 8000
-
-
-def _pos_connection_penalty(prev_pos: str, next_pos: str) -> int:
-    """Return POS bigram connection penalty in mozc cost units."""
-    if not prev_pos:   # BOS
-        return 0
-    if prev_pos == "終助詞":
-        return _POS_PENALTY_SENT_FINAL_NEXT
-    return _POS_PENALTY.get((prev_pos, next_pos), _POS_PENALTY_DEFAULT)
-
-
 class MozcReadingIndex:
+    """In-memory reading→surface lookup built from mozc OSS dictionary files."""
+
     def __init__(self, dict_dir: Path):
-        # Store (surface, cost, pos_str) per reading
-        self.map: dict[str, list[tuple[str, int, str]]] = defaultdict(list)
+        self.map: dict[str, list[tuple[str, int]]] = defaultdict(list)
         for i in range(10):
             dict_file = dict_dir / f"dictionary0{i}.txt"
             if not dict_file.exists():
@@ -191,92 +162,70 @@ class MozcReadingIndex:
                     parts = line.rstrip("\n").split("\t")
                     if len(parts) < 5:
                         continue
-                    reading, lid_str, _rid, cost, surface = parts[:5]
+                    reading, _lid, _rid, cost, surface = parts[:5]
                     try:
-                        lid = int(lid_str)
-                        pos = _lid_to_pos(lid)
-                        self.map[reading].append((surface, int(cost), pos))
+                        self.map[reading].append((surface, int(cost)))
                     except ValueError:
                         continue
 
     def lookup(self, reading: str) -> list[tuple[str, int]]:
-        return [(surface, cost) for surface, cost, _pos in self.map.get(reading, [])]
-
-    def prefix_search(self, reading: str) -> list[tuple[int, str, int, str]]:
-        """Returns (word_len, surface, cost, pos_str) for each matching prefix."""
-        chars = list(reading)
-        results = []
-        for length in range(1, len(chars) + 1):
-            prefix = "".join(chars[:length])
-            for surface, cost, pos in self.map.get(prefix, []):
-                results.append((length, surface, cost, pos))
-        return results
+        return self.map.get(reading, [])
 
 
-def _viterbi_by_cost(
-    reading: str,
-    index: MozcReadingIndex,
-    beam_width: int = 16,
-    top_k: int = 20,
-    pos_penalty_alpha: float = 1.0,
-) -> list[tuple[int, str]]:
-    """Viterbi beam search using mozc cost + POS bigram connection penalty.
-
-    Returns [(total_cost, joined_surface), ...] sorted ascending by cost.
-    Used as fallback for multi-bunsetsu readings not in direct lookup.
-    """
-    if not reading:
-        return []
-
-    chars = list(reading)
-    total = len(chars)
-    # Beam entries: (cumulative_cost, surfaces, last_pos_str)
-    beam: list[list[tuple[int, list[str], str]]] = [[] for _ in range(total + 1)]
-    beam[0].append((0, [], ""))  # empty last_pos = BOS
-
-    for pos in range(total):
-        if len(beam[pos]) > beam_width:
-            beam[pos].sort(key=lambda x: x[0])
-            beam[pos] = beam[pos][:beam_width]
-        if not beam[pos]:
-            continue
-
-        remaining = "".join(chars[pos:])
-        matches = index.prefix_search(remaining)
-
-        if not matches:
-            for cost, surfaces, last_pos in beam[pos]:
-                beam[pos + 1].append((cost + 10000, surfaces + [chars[pos]], ""))
+def _greedy_segment(reading: str, index: MozcReadingIndex) -> list[str]:
+    """Greedy longest-match segmentation of a reading string."""
+    segments = []
+    i = 0
+    n = len(reading)
+    while i < n:
+        best_len = 0
+        for j in range(n, i, -1):
+            if index.lookup(reading[i:j]):
+                best_len = j - i
+                break
+        if best_len == 0:
+            segments.append(reading[i])
+            i += 1
         else:
-            for cost, surfaces, last_pos in beam[pos]:
-                for word_len, surface, entry_cost, entry_pos in matches:
-                    next_pos = pos + word_len
-                    if next_pos > total:
-                        continue
-                    # Penalise single-char zero-cost entries (hiragana fallbacks).
-                    effective_cost = entry_cost
-                    if word_len == 1:
-                        effective_cost = max(entry_cost, 3000)
-                    # POS bigram connection penalty
-                    pos_pen = int(pos_penalty_alpha * _pos_connection_penalty(last_pos, entry_pos))
-                    beam[next_pos].append((
-                        cost + effective_cost + pos_pen,
-                        surfaces + [surface],
-                        entry_pos,
-                    ))
+            segments.append(reading[i : i + best_len])
+            i += best_len
+    return segments
 
-    final = beam[total]
-    final.sort(key=lambda x: x[0])
-    final = final[:top_k]
 
-    seen: set[str] = set()
-    result = []
-    for cost, surfaces, _pos in final:
-        joined = "".join(surfaces)
-        if joined not in seen:
-            seen.add(joined)
-            result.append((cost, joined))
-    return result
+class MozcConverter:
+    """Candidate generator using MozcReadingIndex + KenLM combined scoring."""
+
+    def __init__(self, dict_dir: Path, lm: "LanguageModel"):
+        self.index = MozcReadingIndex(dict_dir)
+        self.lm = lm
+
+    def convert_candidates(self, reading: str, context_left: str = "", top_k: int = 5) -> list[str]:
+        """Return top-k surface candidates for reading, scored by LM - mozc cost."""
+        entries = self.index.lookup(reading)
+        if not entries:
+            # F category fallback: greedy segmentation
+            segments = _greedy_segment(reading, self.index)
+            parts = []
+            for seg in segments:
+                seg_entries = self.index.lookup(seg)
+                if seg_entries:
+                    top_surface = min(seg_entries, key=lambda x: x[1])[0]
+                else:
+                    top_surface = seg
+                parts.append(top_surface)
+            return ["".join(parts)]
+
+        surfaces = [surface for surface, _ in entries]
+        costs = [cost for _, cost in entries]
+        sentences = [(context_left + s) if context_left else s for s in surfaces]
+        lm_scores = self.lm.score_batch(sentences)
+
+        scored = []
+        for surface, cost, lm_score in zip(surfaces, costs, lm_scores):
+            combined = lm_score - (cost / 100.0)
+            scored.append((combined, surface))
+        scored.sort(reverse=True)
+        return [s for _, s in scored[:top_k]]
 
 
 def load_testset(path: Path, category_filter: str = "") -> list[TestItem]:
@@ -299,73 +248,56 @@ def load_testset(path: Path, category_filter: str = "") -> list[TestItem]:
             except KeyError as e:
                 print(f"[WARN] CSV line {lineno} missing column {e} — skipped", file=sys.stderr)
     if not items:
-        print("[ERROR] No test items loaded.", file=sys.stderr)
+        print("[ERROR] No test items loaded (0 items).", file=sys.stderr)
         sys.exit(2)
     return items
 
 
 def evaluate(
     items: list[TestItem],
-    index: MozcReadingIndex,
-    lm: LanguageModel,
+    converter: MozcConverter,
     top_k: int,
     verbose: bool,
-    beam_width: int = 16,
 ) -> list[EvalResult]:
-    """Hybrid evaluation:
-    - Direct lookup (A/B/C/D/E categories): lookup(reading) → batch LM scoring
-    - Viterbi fallback (F/unknown): cost-only Viterbi → batch LM scoring
-    All LM scoring is batched globally in ONE kenlm call.
-    """
-    cost_alpha = 0.01
-
-    # Phase 1: collect candidate surfaces + sentences
-    item_cands: list[list[tuple[int, str]]] = []  # [(cost, surface)]
+    # Phase 1: collect all candidates + sentences without LM scoring
+    item_cands: list[list[tuple[str, int, str]]] = []  # (surface, cost, sentence)
     all_sentences: list[str] = []
     slice_bounds: list[tuple[int, int]] = []
 
-    print("[INFO] Phase 1: candidate generation ...", file=sys.stderr)
     for item in items:
-        direct = index.lookup(item.reading)
-        if direct:
-            cands = direct  # [(surface, cost)]
-            # Normalize to (cost, surface)
-            normed = [(cost, surface) for surface, cost in cands]
+        entries = converter.index.lookup(item.reading)
+        if not entries:
+            segments = _greedy_segment(item.reading, converter.index)
+            parts = []
+            for seg in segments:
+                seg_entries = converter.index.lookup(seg)
+                top_surface = min(seg_entries, key=lambda x: x[1])[0] if seg_entries else seg
+                parts.append(top_surface)
+            cands = [("".join(parts), 0, "".join(parts))]
         else:
-            # Viterbi fallback for multi-bunsetsu / unknown words
-            normed = _viterbi_by_cost(item.reading, index, beam_width, top_k * 4)
-            if not normed:
-                normed = [(0, item.reading)]
-
-        item_cands.append(normed)
+            cands = []
+            for surface, cost in entries:
+                sentence = (item.context_left + surface) if item.context_left else surface
+                cands.append((surface, cost, sentence))
+        item_cands.append(cands)
         start = len(all_sentences)
-        for cost, surface in normed:
-            sentence = (item.context_left + surface) if item.context_left else surface
-            all_sentences.append(sentence)
+        all_sentences.extend(sent for _, _, sent in cands)
         slice_bounds.append((start, len(all_sentences)))
 
-    # Phase 2: batch score ALL sentences in ONE kenlm call
-    print(f"[INFO] Phase 2: batch scoring {len(all_sentences)} sentences ...", file=sys.stderr)
-    all_scores = lm.score_batch(all_sentences)
+    # Phase 2: batch score all sentences in a single kenlm call
+    print(f"[INFO] Batch scoring {len(all_sentences)} sentences ...", file=sys.stderr)
+    all_scores = converter.lm.score_batch(all_sentences)
 
-    # Phase 3: rerank each item
+    # Phase 3: rank candidates and build results
     results = []
     for item, cands, (start, end) in zip(items, item_cands, slice_bounds):
         item_scores = all_scores[start:end]
         scored = [
-            (lm_score - cost_alpha * (cost / 100.0), surface)
-            for (cost, surface), lm_score in zip(cands, item_scores)
+            (lm_score - (cost / 100.0), surface)
+            for (surface, cost, _), lm_score in zip(cands, item_scores)
         ]
         scored.sort(reverse=True)
-
-        seen: set[str] = set()
-        top_candidates = []
-        for _, surface in scored:
-            if surface not in seen:
-                seen.add(surface)
-                top_candidates.append(surface)
-                if len(top_candidates) >= top_k:
-                    break
+        top_candidates = [s for _, s in scored[:top_k]]
         if not top_candidates:
             top_candidates = [item.reading]
 
@@ -373,9 +305,10 @@ def evaluate(
         top5_correct = item.expected in top_candidates
 
         if verbose and not top1_correct:
+            top1 = top_candidates[0]
             print(
                 f"[MISS] cat={item.category} reading={item.reading} "
-                f"expected={item.expected} got={top_candidates[0]}",
+                f"expected={item.expected} got={top1}",
                 file=sys.stderr,
             )
 
@@ -390,27 +323,43 @@ def evaluate(
 
 def compute_metrics(results: list[EvalResult]) -> dict:
     total = len(results)
-    m1 = round(sum(1 for r in results if r.top1_correct) / total * 100, 1) if total else 0.0
-    m2 = round(sum(1 for r in results if r.top5_correct) / total * 100, 1) if total else 0.0
+    m1_correct = sum(1 for r in results if r.top1_correct)
+    m2_correct = sum(1 for r in results if r.top5_correct)
 
+    m1 = round(m1_correct / total * 100, 1) if total else 0.0
+    m2 = round(m2_correct / total * 100, 1) if total else 0.0
+
+    # M3: per-category accuracy
     by_cat: dict[str, list[EvalResult]] = {}
     for r in results:
         by_cat.setdefault(r.item.category, []).append(r)
 
-    m3 = {
-        cat: round(sum(r.top1_correct for r in cat_res) / len(cat_res) * 100, 1)
-        for cat, cat_res in by_cat.items()
-    }
+    m3: dict[str, float] = {}
+    for cat, cat_results in by_cat.items():
+        n = len(cat_results)
+        correct = sum(1 for r in cat_results if r.top1_correct)
+        m3[cat] = round(correct / n * 100, 1) if n else 0.0
 
+    # M4: homophone context-lift (context_left present vs absent)
     hm = [r for r in results if r.item.category == "homophone"]
     with_ctx = [r for r in hm if r.item.context_left]
     without_ctx = [r for r in hm if not r.item.context_left]
     ctx_rate = round(sum(r.top1_correct for r in with_ctx) / len(with_ctx) * 100, 1) if with_ctx else 0.0
     noctx_rate = round(sum(r.top1_correct for r in without_ctx) / len(without_ctx) * 100, 1) if without_ctx else 0.0
     m4 = round(ctx_rate - noctx_rate, 1)
-    m5 = round(sum(r.top1_correct for r in hm) / len(hm) * 100, 1) if hm else 0.0
 
-    return {"total": total, "m1": m1, "m2": m2, "m3": m3, "m4": m4, "m5": m5}
+    # M5: homophone Wikipedia-frequency bias (top1 = most frequent reading)
+    m5_correct = sum(1 for r in hm if r.top1_correct)
+    m5 = round(m5_correct / len(hm) * 100, 1) if hm else 0.0
+
+    return {
+        "total": total,
+        "m1": m1,
+        "m2": m2,
+        "m3": m3,
+        "m4": m4,
+        "m5": m5,
+    }
 
 
 def _judge(value: float, target: float) -> str:
@@ -420,11 +369,15 @@ def _judge(value: float, target: float) -> str:
 def determine_overall(metrics: dict) -> tuple[str, str]:
     m1 = metrics["m1"]
     if m1 >= 70:
-        return "PASS", f"M1 Top-1 {m1}% ≥ 70% 基準達成。Phase 2 へ進む。"
+        verdict = "PASS"
+        reason = f"M1 Top-1 {m1}% ≥ 70% 基準達成。Phase 2 へ進む。"
     elif m1 >= 50:
-        return "NEEDS_IMPROVEMENT", f"M1 Top-1 {m1}%。改善手段A〜C を順次適用し再評価。"
+        verdict = "NEEDS_IMPROVEMENT"
+        reason = f"M1 Top-1 {m1}%。改善手段A〜C を順次適用し再評価。"
     else:
-        return "FAIL", f"M1 Top-1 {m1}% < 50%。学習パイプライン根本見直し（殿エスカレ即時）。"
+        verdict = "FAIL"
+        reason = f"M1 Top-1 {m1}% < 50%。学習パイプライン根本見直し（殿エスカレ即時）。"
+    return verdict, reason
 
 
 def render_report(
@@ -437,20 +390,26 @@ def render_report(
     verbose: bool,
 ) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    m1, m2, m3, m4, m5 = metrics["m1"], metrics["m2"], metrics["m3"], metrics["m4"], metrics["m5"]
+    total = metrics["total"]
+    m1 = metrics["m1"]
+    m2 = metrics["m2"]
+    m3 = metrics["m3"]
+    m4 = metrics["m4"]
+    m5 = metrics["m5"]
+
     size_mb = lm.file_size_mb()
     n_gram = lm.n_gram_order()
     n_gram_str = f"{n_gram}-gram" if n_gram else "?-gram"
+
     verdict, reason = determine_overall(metrics)
 
     lines = [
-        "# LM Evaluation Report (P2-T1 Viterbi)",
+        "# LM Evaluation Report",
         "",
         f"- Date: {now}",
         f"- Model: {model_path} ({size_mb:.1f} MB, {n_gram_str})",
-        f"- Test set: {testset_path} ({metrics['total']} samples)",
+        f"- Test set: {testset_path} ({total} samples)",
         f"- Mozc dict: {mozc_dir.name}",
-        f"- Algorithm: direct lookup + Viterbi fallback (beam=16) + global batch KenLM",
         "",
         "## 主要指標",
         "",
@@ -483,12 +442,6 @@ def render_report(
         "",
         f"- M4 同音異義語 文脈効果: +{m4}pt (文脈あり vs なし)",
         f"- M5 最頻表記正解率: {m5}%",
-        "",
-        "## ベースライン比較",
-        "",
-        "- Baseline M1 (mozc greedy + LM, 2026-04-19): 58.5%",
-        f"- P2-T1 M1 (direct lookup + Viterbi fallback, 2026-04-20): {m1}%",
-        f"- Δ F 連文節短文: baseline=0.0% → {m3.get('multi_bunsetsu', 0.0)}%",
     ]
 
     if verbose:
@@ -507,7 +460,13 @@ def render_report(
                 f"| {r.item.category} | {r.item.reading} | {r.item.expected} | {top1} | {top5} |"
             )
 
-    lines += ["", "## 総合判定", "", f"**{verdict}** — {reason}"]
+    lines += [
+        "",
+        "## 総合判定",
+        "",
+        f"**{verdict}** — {reason}",
+    ]
+
     return "\n".join(lines) + "\n"
 
 
@@ -515,20 +474,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="N-gram LM accuracy evaluator for llmime")
     parser.add_argument("--testset", required=True, type=Path)
     parser.add_argument("--model", required=True, type=Path)
-    parser.add_argument("--mozc-dict", type=Path, dest="mozc_dict", default=None)
-    parser.add_argument("--vibrato-dict", type=Path, dest="vibrato_dict", default=None)
+    parser.add_argument("--mozc-dict", required=True, type=Path, dest="mozc_dict")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--category-filter", default="")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    mozc_dir = args.mozc_dict or (
-        Path("vendor/mozc_oss") if Path("vendor/mozc_oss").exists() else None
-    )
-    if mozc_dir is None:
-        print("[ERROR] --mozc-dict required (or vendor/mozc_oss must exist)", file=sys.stderr)
-        sys.exit(1)
+    # Load model
     if not args.model.exists():
         print(f"[ERROR] Model not found: {args.model}", file=sys.stderr)
         sys.exit(1)
@@ -539,27 +492,33 @@ def main() -> None:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
-    if not mozc_dir.exists():
-        print(f"[ERROR] mozc dict dir not found: {mozc_dir}", file=sys.stderr)
+    # Load mozc converter
+    if not args.mozc_dict.exists():
+        print(f"[ERROR] mozc dict dir not found: {args.mozc_dict}", file=sys.stderr)
         sys.exit(1)
-    print(f"[INFO] Loading MozcReadingIndex from {mozc_dir} ...", file=sys.stderr)
-    index = MozcReadingIndex(mozc_dir)
-    print(f"[INFO] MozcReadingIndex loaded ({len(index.map)} unique readings).", file=sys.stderr)
+    print(f"[INFO] Loading MozcReadingIndex from {args.mozc_dict} ...", file=sys.stderr)
+    converter = MozcConverter(args.mozc_dict, lm)
+    print(f"[INFO] MozcReadingIndex loaded ({len(converter.index.map)} unique readings).", file=sys.stderr)
 
+    # Load testset
     items = load_testset(args.testset, args.category_filter)
     print(f"[INFO] Loaded {len(items)} test items.", file=sys.stderr)
 
-    results = evaluate(items, index, lm, args.top_k, args.verbose)
+    # Evaluate
+    results = evaluate(items, converter, args.top_k, args.verbose)
 
+    # Compute metrics
     metrics = compute_metrics(results)
     print(f"[INFO] M1={metrics['m1']}%  M2={metrics['m2']}%", file=sys.stderr)
 
-    report = render_report(metrics, results, args.model, args.testset, mozc_dir, lm, args.verbose)
+    # Render report
+    report = render_report(metrics, results, args.model, args.testset, args.mozc_dict, lm, args.verbose)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
     print(f"[INFO] Report written to {args.output}", file=sys.stderr)
 
+    # Exit 3 if FAIL so CI can catch it
     verdict, _ = determine_overall(metrics)
     if verdict == "FAIL":
         sys.exit(3)
