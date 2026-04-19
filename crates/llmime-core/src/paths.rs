@@ -48,9 +48,13 @@ impl LlmimePaths {
 mod tests {
     use super::*;
     use std::path::Path;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn resolve_uses_env_override() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
@@ -59,6 +63,7 @@ mod tests {
 
     #[test]
     fn resolve_models_dir_is_subdir_of_data() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_models_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
@@ -70,6 +75,7 @@ mod tests {
 
     #[test]
     fn resolve_mozc_dir_is_correct_subpath() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_mozc_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
@@ -81,6 +87,7 @@ mod tests {
 
     #[test]
     fn resolve_db_path_is_correct() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_db_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
