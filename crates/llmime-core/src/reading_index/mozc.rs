@@ -50,9 +50,12 @@ impl MozcReadingIndex {
             let surface = cols[4].to_string();
             let pos = lid_to_pos(lid);
 
-            map.entry(reading.clone())
-                .or_default()
-                .push(ReadingEntry { surface, reading, pos, cost });
+            map.entry(reading.clone()).or_default().push(ReadingEntry {
+                surface,
+                reading,
+                pos,
+                cost,
+            });
         }
     }
 }
@@ -68,12 +71,12 @@ impl MozcReadingIndex {
 ///   名詞 high IDs: 1280+
 fn lid_to_pos(lid: i32) -> String {
     match lid {
-        172..=180 => "助動詞",                      // copula/auxiliary (です, で)
-        215 | 423 => "終助詞",                       // sentence-final (ね, よ)
-        591 | 633 | 837..=870 => "動詞",             // known verb IDs
+        172..=180 => "助動詞",           // copula/auxiliary (です, で)
+        215 | 423 => "終助詞",           // sentence-final (ね, よ)
+        591 | 633 | 837..=870 => "動詞", // known verb IDs
         726 | 830 | 2418 | 2459 | 2467..=2476 => "形容詞", // adjective IDs
-        168..=720 => "助詞",                         // broad particle range
-        1280..=2671 => "名詞",                       // noun range
+        168..=720 => "助詞",             // broad particle range
+        1280..=2671 => "名詞",           // noun range
         _ => "名詞",
     }
     .to_string()

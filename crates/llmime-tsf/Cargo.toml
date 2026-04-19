@@ -1,0 +1,19 @@
+[package]
+name = "llmime-tsf"
+version = "0.1.0"
+edition = "2021"
+description = "Windows Text Services Framework integration for llmime"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+llmime-core = { path = "../llmime-core" }
+log = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_TextServices",
+    "Win32_System_Com",
+] }
