@@ -1,3 +1,4 @@
+pub mod config;
 pub mod history;
 pub mod inference;
 pub mod lm;
@@ -7,7 +8,13 @@ pub mod reading_index;
 pub mod scoring;
 pub mod user_dict;
 
+pub use config::LlmimeConfig;
 pub use history::{HistoryStore, SqliteHistoryStore};
+pub use inference::{
+    default_fallback_chain, Dispatcher, DynInferencer, FallbackChain, InferenceError, Inferencer,
+    InputMode, LocalLlmInferencer, LocalNgramInferencer, ModeManager, WarmupOrchestrator,
+    WarmupStatus, WorkersAIInferencer,
+};
 pub use lm::{KenLMModel, LanguageModel};
 pub use morphology::{Morpheme, Tokenizer, VibratoTokenizer};
 pub use paths::LlmimePaths;

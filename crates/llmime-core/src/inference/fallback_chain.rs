@@ -17,6 +17,14 @@ impl FallbackChain {
         }
     }
 
+    pub fn primary_name(&self) -> &'static str {
+        self.primary.name()
+    }
+
+    pub fn fallback_count(&self) -> usize {
+        self.fallbacks.len()
+    }
+
     pub async fn rerank(
         &self,
         reading: &str,
