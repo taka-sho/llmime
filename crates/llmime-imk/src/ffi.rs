@@ -1,4 +1,7 @@
 // C-callable FFI functions invoked from the Objective-C layer (LlmimeIMController.m).
+// Safety invariant for all pub unsafe extern "C" fns: callers must pass valid, aligned pointers
+// and ensure no aliasing; null checks are performed at the start of each function.
+#![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 
@@ -17,7 +20,7 @@ pub extern "C" fn llmime_imk_session_end(session_id: u64) {
 
 /// Returns 1 if the input was consumed, 0 otherwise.
 #[no_mangle]
-pub extern "C" fn llmime_imk_input_text(
+pub unsafe extern "C" fn llmime_imk_input_text(
     session_id: u64,
     utf8: *const c_char,
     _modifiers: u32,
@@ -58,7 +61,7 @@ pub extern "C" fn llmime_imk_get_candidate_count(session_id: u64) -> u32 {
 
 /// Writes candidate at `index` as a UTF-8 string into `buf` (null-terminated, max `buf_len` bytes).
 #[no_mangle]
-pub extern "C" fn llmime_imk_get_candidate(
+pub unsafe extern "C" fn llmime_imk_get_candidate(
     session_id: u64,
     index: u32,
     buf: *mut c_char,
@@ -80,7 +83,7 @@ pub extern "C" fn llmime_imk_get_candidate(
 }
 
 #[no_mangle]
-pub extern "C" fn llmime_imk_candidate_selected(session_id: u64, utf8: *const c_char) {
+pub unsafe extern "C" fn llmime_imk_candidate_selected(session_id: u64, utf8: *const c_char) {
     if utf8.is_null() {
         return;
     }
@@ -90,7 +93,10 @@ pub extern "C" fn llmime_imk_candidate_selected(session_id: u64, utf8: *const c_
 }
 
 #[no_mangle]
-pub extern "C" fn llmime_imk_candidate_selection_changed(session_id: u64, utf8: *const c_char) {
+pub unsafe extern "C" fn llmime_imk_candidate_selection_changed(
+    session_id: u64,
+    utf8: *const c_char,
+) {
     if utf8.is_null() {
         return;
     }
