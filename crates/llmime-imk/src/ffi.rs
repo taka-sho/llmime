@@ -104,3 +104,55 @@ pub unsafe extern "C" fn llmime_imk_candidate_selection_changed(
     let Ok(text) = s.to_str() else { return };
     log::debug!("session {}: selection changed to {:?}", session_id, text);
 }
+
+/// Writes the current preedit string into `buf` (null-terminated, max `buf_len` bytes).
+#[no_mangle]
+pub unsafe extern "C" fn llmime_imk_get_preedit(session_id: u64, buf: *mut c_char, buf_len: u32) {
+    if buf.is_null() || buf_len == 0 {
+        return;
+    }
+    let preedit = with_session(session_id, |sess| sess.preedit.clone()).unwrap_or_default();
+    let cs = CString::new(preedit).unwrap_or_default();
+    let bytes = cs.as_bytes_with_nul();
+    let copy_len = bytes.len().min(buf_len as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buf, copy_len);
+        *buf.add(copy_len - 1) = 0;
+    }
+}
+
+/// Commits the first candidate (or preedit as fallback) and writes committed text into `buf`.
+/// Returns 1 if something was committed, 0 if preedit was empty.
+#[no_mangle]
+pub unsafe extern "C" fn llmime_imk_commit_first(
+    session_id: u64,
+    buf: *mut c_char,
+    buf_len: u32,
+) -> c_int {
+    if buf.is_null() || buf_len == 0 {
+        return 0;
+    }
+    let result: Option<Option<String>> = with_session(session_id, |sess| {
+        if sess.preedit.is_empty() {
+            return None;
+        }
+        let text = sess
+            .candidates
+            .first()
+            .cloned()
+            .unwrap_or_else(|| sess.preedit.clone());
+        sess.commit(&text);
+        Some(text)
+    });
+    let Some(Some(text)) = result else {
+        return 0;
+    };
+    let cs = CString::new(text).unwrap_or_default();
+    let bytes = cs.as_bytes_with_nul();
+    let copy_len = bytes.len().min(buf_len as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buf, copy_len);
+        *buf.add(copy_len - 1) = 0;
+    }
+    1
+}
