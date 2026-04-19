@@ -23,26 +23,24 @@ impl FallbackChain {
         candidates: Vec<CandidateWithScore>,
         left_context: Option<&str>,
     ) -> Vec<CandidateWithScore> {
-        match tokio::time::timeout(
+        if let Ok(Ok(v)) = tokio::time::timeout(
             self.timeout,
             self.primary
                 .rerank(reading, candidates.clone(), left_context),
         )
         .await
         {
-            Ok(Ok(v)) => return v,
-            _ => {}
+            return v;
         }
 
         for fb in &self.fallbacks {
-            match tokio::time::timeout(
+            if let Ok(Ok(v)) = tokio::time::timeout(
                 self.timeout,
                 fb.rerank(reading, candidates.clone(), left_context),
             )
             .await
             {
-                Ok(Ok(v)) => return v,
-                _ => {}
+                return v;
             }
         }
 
