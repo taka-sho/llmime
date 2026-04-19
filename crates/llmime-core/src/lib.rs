@@ -5,6 +5,7 @@ pub mod inference;
 pub mod lm;
 pub mod morphology;
 pub mod paths;
+pub mod pipeline;
 pub mod reading_index;
 pub mod scoring;
 pub mod user_dict;
@@ -20,6 +21,7 @@ pub use inference::{
 pub use lm::{KenLMModel, LanguageModel};
 pub use morphology::{Morpheme, Tokenizer, VibratoTokenizer};
 pub use paths::LlmimePaths;
+pub use pipeline::AsyncPipeline;
 pub use reading_index::{
     LmScorer, MozcReadingIndex, ReadingEntry, ReadingIndex, ViterbiConfig, ViterbiLattice,
 };
