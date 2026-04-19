@@ -28,7 +28,6 @@ jobs:
 
       - name: fmt check
         run: cargo fmt --check
-        continue-on-error: true
 
       - name: clippy
         run: cargo clippy -- -D warnings
