@@ -42,10 +42,14 @@ impl LanguageModel for KenLMModel {
         match output {
             Ok(out) => {
                 let text = String::from_utf8_lossy(&out.stdout);
-                // The `query` tool outputs "Total: <log10_prob>" at the end.
-                text.lines()
-                    .find(|l| l.starts_with("Total:"))
-                    .and_then(|l| l.split_whitespace().nth(1))
+                // The `query` tool outputs "Total: <log10_prob>" either on its own
+                // line or tab-separated on the last word line (single-sentence mode).
+                text.find("Total:")
+                    .and_then(|pos| {
+                        text[pos + "Total:".len()..]
+                            .split_whitespace()
+                            .next()
+                    })
                     .and_then(|v| v.parse::<f64>().ok())
                     .unwrap_or(f64::NEG_INFINITY)
             }
