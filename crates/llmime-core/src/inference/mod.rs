@@ -7,6 +7,7 @@ pub mod inferencer;
 pub mod local_llm;
 pub mod local_ngram;
 pub mod mode;
+pub mod token_counter;
 pub mod warmup;
 pub mod workers_ai;
 
@@ -19,5 +20,6 @@ pub use inferencer::{CandidateSource, CandidateWithScore, DynInferencer, Inferen
 pub use local_llm::LocalLlmInferencer;
 pub use local_ngram::LocalNgramInferencer;
 pub use mode::{InputMode, ModeManager};
+pub use token_counter::TokenCounter;
 pub use warmup::{WarmupOrchestrator, WarmupStatus};
 pub use workers_ai::WorkersAIInferencer;
