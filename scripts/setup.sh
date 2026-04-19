@@ -160,6 +160,24 @@ else
     echo "[FAIL]"
 fi
 
+# ─── Step 8: UniDic system.dic.zst → system.dic 展開 ─────────────────────
+echo ""
+echo "[Step 8] UniDic system.dic の展開..."
+DICT_ZST="${REPO_ROOT}/dict/unidic-cwj-3_1_1/system.dic.zst"
+DICT_DIC="${REPO_ROOT}/dict/system.dic"
+if [[ -f "${DICT_DIC}" ]]; then
+    echo "[OK] system.dic 既に存在: ${DICT_DIC}"
+elif [[ -f "${DICT_ZST}" ]] && command -v zstd &>/dev/null; then
+    echo "[INFO] zstd で展開中: ${DICT_ZST} → ${DICT_DIC}"
+    zstd -d "${DICT_ZST}" -o "${DICT_DIC}"
+    echo "[OK] 展開完了: ${DICT_DIC}"
+elif [[ -f "${DICT_ZST}" ]]; then
+    echo "[WARN] zstd が見つかりません。brew install zstd で導入後、以下を実行してください:"
+    echo "       zstd -d ${DICT_ZST} -o ${DICT_DIC}"
+else
+    echo "[WARN] system.dic.zst が見つかりません。bash scripts/setup_dict.sh を実行してください。"
+fi
+
 echo ""
 echo "========================================"
 echo " セットアップ完了"
