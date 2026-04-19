@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use llmime_core::{KenLMModel, LanguageModel, NgramScorer, Scorer, VibratoTokenizer};
+use llmime_core::{KenLMModel, LanguageModel, LlmimePaths, NgramScorer, Scorer, VibratoTokenizer};
 
 #[derive(Parser)]
 #[command(name = "llmime", about = "LLM-powered Japanese IME")]
@@ -42,21 +42,20 @@ fn main() -> anyhow::Result<()> {
             model,
             dict,
         } => {
-            let model_path = model.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "model path is required: use --model <PATH> or set $LLMIME_MODEL"
-                )
-            })?;
+            let sys_paths = LlmimePaths::resolve();
+            let model_path = model.unwrap_or(sys_paths.models_dir.join("lm.binary"));
             if !model_path.exists() {
-                anyhow::bail!("model file not found: {}", model_path.display());
+                anyhow::bail!(
+                    "model file not found: {} (use --model <PATH> or set $LLMIME_MODEL or $LLMIME_DATA_DIR)",
+                    model_path.display()
+                );
             }
-            let dict_path = dict.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "dict path is required: use --dict <PATH> or set $LLMIME_DICT"
-                )
-            })?;
+            let dict_path = dict.unwrap_or(sys_paths.mozc_dir.join("system.dic"));
             if !dict_path.exists() {
-                anyhow::bail!("dict file not found: {}", dict_path.display());
+                anyhow::bail!(
+                    "dict file not found: {} (use --dict <PATH> or set $LLMIME_DICT or $LLMIME_DATA_DIR)",
+                    dict_path.display()
+                );
             }
             let tokenizer = VibratoTokenizer::new(&dict_path)?;
             let lm = KenLMModel::load(&model_path)?;
