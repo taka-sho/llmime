@@ -9,6 +9,7 @@ pub mod pipeline;
 pub mod reading_index;
 pub mod scoring;
 pub mod user_dict;
+pub mod ux;
 
 pub use config::{ConfigError, LlmimeConfig, LocalLlmConfig, WorkersAIConfig};
 pub use consent::ConsentManager;
@@ -27,3 +28,4 @@ pub use reading_index::{
 };
 pub use scoring::{Candidate, CandidateScore, NgramScorer, Scorer};
 pub use user_dict::UserDict;
+pub use ux::LiveConversionHandler;
