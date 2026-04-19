@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::consent::ConsentManager;
@@ -7,6 +8,7 @@ use crate::inference::{
     capabilities::InferencerCapabilities,
     error::InferenceError,
     inferencer::{CandidateSource, CandidateWithScore, Inferencer},
+    latency_tracker::LatencyTracker,
     retry::{with_retry, RetryConfig, RetryDecision},
 };
 
@@ -18,19 +20,30 @@ pub struct WorkersAIInferencer {
     client: reqwest::Client,
     retry_config: RetryConfig,
     consent_manager: Option<ConsentManager>,
+    latency_tracker: Arc<LatencyTracker>,
 }
 
 impl WorkersAIInferencer {
     pub fn new(account_id: String, api_token: String, model_id: String) -> Self {
+        let client = reqwest::Client::builder()
+            .pool_max_idle_per_host(5)
+            .tcp_keepalive(Duration::from_secs(30))
+            .build()
+            .expect("failed to build reqwest Client");
         Self {
             account_id,
             api_token,
             model_id,
             timeout: Duration::from_millis(1500),
-            client: reqwest::Client::new(),
+            client,
             retry_config: RetryConfig::default(),
             consent_manager: None,
+            latency_tracker: LatencyTracker::new(100),
         }
+    }
+
+    pub fn latency_tracker(&self) -> Arc<LatencyTracker> {
+        Arc::clone(&self.latency_tracker)
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -96,12 +109,9 @@ fn build_system_prompt(left_context: Option<&str>) -> String {
         JSONで返してください。\n\n\
         出力フォーマット（他のテキストは一切含めないこと）:\n\
         {{\"best_index\": <番号>, \"confidence\": <0.0〜1.0>}}\n\n\
-        例1:\n\
+        例:\n\
         読み: きょう、候補: [1. 今日, 2. 京, 3. 今夕]\n\
-        → {{\"best_index\": 1, \"confidence\": 0.95}}\n\n\
-        例2:\n\
-        読み: かいぎ、候補: [1. 会議, 2. 怪奇, 3. 海技]\n\
-        → {{\"best_index\": 1, \"confidence\": 0.9}}",
+        → {{\"best_index\": 1, \"confidence\": 0.95}}",
         context_line
     )
 }
@@ -256,6 +266,7 @@ impl Inferencer for WorkersAIInferencer {
         };
 
         let deadline = Instant::now() + self.timeout;
+        let t0 = Instant::now();
         let client = &self.client;
         let api_resp = with_retry(&self.retry_config, deadline, || {
             let remaining = deadline
@@ -264,6 +275,7 @@ impl Inferencer for WorkersAIInferencer {
             call_workers_ai_once(client, &url, &self.api_token, &payload, remaining)
         })
         .await?;
+        self.latency_tracker.record(t0.elapsed().as_millis() as u64);
 
         let len = candidates.len();
         if let Some(best_idx) = parse_best_index(&api_resp.result.response, len) {
