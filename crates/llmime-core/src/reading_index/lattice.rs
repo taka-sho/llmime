@@ -1,4 +1,5 @@
 use crate::lm::LanguageModel;
+use crate::reading_index::pos_connection::{self, PosClass};
 use crate::reading_index::{ReadingEntry, ReadingIndex};
 use crate::scoring::Candidate;
 
@@ -19,17 +20,21 @@ pub struct ViterbiConfig {
     pub beam_width: usize,
     /// Weight applied to mozc dictionary cost (cost / 100.0 * alpha, subtracted from score).
     pub cost_alpha: f64,
+    /// Weight applied to POS bigram connection penalty (penalty * alpha, subtracted from score).
+    /// Set to 0.0 to disable POS-based scoring.
+    pub cost_pos_alpha: f64,
 }
 
 impl Default for ViterbiConfig {
     fn default() -> Self {
-        Self { beam_width: 8, cost_alpha: 0.01 }
+        Self { beam_width: 8, cost_alpha: 0.01, cost_pos_alpha: 0.05 }
     }
 }
 
 #[derive(Clone)]
 struct BeamEntry {
     surfaces: Vec<String>,
+    last_pos: PosClass,
     score: f64,
 }
 
@@ -47,7 +52,7 @@ impl ViterbiLattice {
         top_k: usize,
     ) -> Vec<Candidate> {
         let config = ViterbiConfig { beam_width, ..ViterbiConfig::default() };
-        Self::top_k_candidates_with_config(reading, index, lm, top_k, &config)
+        Self::search(reading, index, lm, top_k, &config)
     }
 
     pub fn top_k_candidates_with_config(
@@ -57,17 +62,19 @@ impl ViterbiLattice {
         top_k: usize,
         config: &ViterbiConfig,
     ) -> Vec<Candidate> {
-        Self::search(reading, index, lm, config.beam_width, top_k, config.cost_alpha)
+        Self::search(reading, index, lm, top_k, config)
     }
 
     fn search(
         reading: &str,
         index: &impl ReadingIndex,
         lm: &impl LmScorer,
-        beam_width: usize,
         top_k: usize,
-        cost_alpha: f64,
+        config: &ViterbiConfig,
     ) -> Vec<Candidate> {
+        let beam_width = config.beam_width;
+        let cost_alpha = config.cost_alpha;
+        let cost_pos_alpha = config.cost_pos_alpha;
         if reading.is_empty() {
             return vec![];
         }
@@ -77,7 +84,7 @@ impl ViterbiLattice {
 
         // beam[pos] = candidate paths that have consumed `pos` chars
         let mut beam: Vec<Vec<BeamEntry>> = vec![vec![]; total + 1];
-        beam[0].push(BeamEntry { surfaces: vec![], score: 0.0 });
+        beam[0].push(BeamEntry { surfaces: vec![], last_pos: PosClass::Unknown, score: 0.0 });
 
         for pos in 0..total {
             // Prune at current position before expanding
@@ -122,9 +129,16 @@ impl ViterbiLattice {
                     let word_refs: Vec<&str> = new_surfaces.iter().map(|s| s.as_str()).collect();
                     let lm_score = lm.score_words(&word_refs);
                     let cost_penalty = cost_alpha * (entry.cost as f64 / 100.0);
-                    let new_score = lm_score - cost_penalty;
+                    let entry_pos = pos_connection::classify(&entry.pos);
+                    let pos_penalty = cost_pos_alpha
+                        * pos_connection::connection_penalty(path.last_pos, entry_pos);
+                    let new_score = lm_score - cost_penalty - pos_penalty;
 
-                    beam[next_pos].push(BeamEntry { surfaces: new_surfaces, score: new_score });
+                    beam[next_pos].push(BeamEntry {
+                        surfaces: new_surfaces,
+                        last_pos: entry_pos,
+                        score: new_score,
+                    });
                 }
             }
         }
@@ -191,6 +205,47 @@ mod tests {
     fn idx(entries: Vec<(&str, &str, i32)>) -> MockIndex {
         MockIndex {
             entries: entries.into_iter().map(|(r, s, c)| (r.to_string(), s.to_string(), c)).collect(),
+        }
+    }
+
+    // MockIndex variant that stores POS strings for connection cost tests.
+    struct MockIndexWithPos {
+        entries: Vec<(String, String, i32, String)>, // (reading, surface, cost, pos)
+    }
+
+    impl ReadingIndex for MockIndexWithPos {
+        fn lookup(&self, reading: &str) -> Vec<ReadingEntry> {
+            self.entries
+                .iter()
+                .filter(|(r, _, _, _)| r == reading)
+                .map(|(r, s, c, p)| ReadingEntry {
+                    surface: s.clone(),
+                    reading: r.clone(),
+                    pos: p.clone(),
+                    cost: *c,
+                })
+                .collect()
+        }
+
+        fn prefix_search(&self, reading: &str) -> Vec<(usize, ReadingEntry)> {
+            let chars: Vec<char> = reading.chars().collect();
+            let mut results = Vec::new();
+            for len in 1..=chars.len() {
+                let prefix: String = chars[..len].iter().collect();
+                for entry in self.lookup(&prefix) {
+                    results.push((len, entry));
+                }
+            }
+            results
+        }
+    }
+
+    fn idx_pos(entries: Vec<(&str, &str, i32, &str)>) -> MockIndexWithPos {
+        MockIndexWithPos {
+            entries: entries
+                .into_iter()
+                .map(|(r, s, c, p)| (r.to_string(), s.to_string(), c, p.to_string()))
+                .collect(),
         }
     }
 
@@ -295,7 +350,7 @@ mod tests {
     #[test]
     fn cost_alpha_zero_ignores_cost() {
         let i = idx(vec![("あ", "亜", 100), ("あ", "阿", 9000)]);
-        let config = ViterbiConfig { beam_width: 8, cost_alpha: 0.0 };
+        let config = ViterbiConfig { beam_width: 8, cost_alpha: 0.0, cost_pos_alpha: 0.0 };
         let result = ViterbiLattice::top_k_candidates_with_config("あ", &i, &MockLm, 5, &config);
         assert!(!result.is_empty());
         // Both candidates have same LM score, so scores should be equal
@@ -307,5 +362,55 @@ mod tests {
         let result = ViterbiLattice::top_k_candidates("あいう", &idx(vec![]), &MockLm, 8, 5);
         assert!(!result.is_empty());
         assert_eq!(result[0].surface, "あいう");
+    }
+
+    /// POS costs should change top-1 when two segmentations differ only in POS transitions.
+    ///
+    /// Setup: "がは" where が can be parsed as particle (が, cost=0) or noun (蛾, cost=5000).
+    /// Without POS: が(particle)+は(particle) wins because word cost is lower (0 vs 5000).
+    /// With POS:    が(particle)+は(particle) is penalised (particle→particle = 5.0),
+    ///              so 蛾(noun)+は(particle) wins despite its higher word cost.
+    #[test]
+    fn pos_bigram_fixes_particle_chain_segmentation() {
+        let i = idx_pos(vec![
+            ("が", "が", 0, "助詞"),      // particle が
+            ("が", "蛾", 5000, "名詞"),   // moth 蛾 (same reading)
+            ("は", "は", 0, "助詞"),      // topic particle は
+        ]);
+
+        let no_pos = ViterbiLattice::top_k_candidates_with_config(
+            "がは",
+            &i,
+            &MockLm,
+            5,
+            &ViterbiConfig { beam_width: 8, cost_alpha: 0.001, cost_pos_alpha: 0.0 },
+        );
+        let with_pos = ViterbiLattice::top_k_candidates_with_config(
+            "がは",
+            &i,
+            &MockLm,
+            5,
+            &ViterbiConfig { beam_width: 8, cost_alpha: 0.001, cost_pos_alpha: 1.0 },
+        );
+
+        assert!(!no_pos.is_empty());
+        assert!(!with_pos.is_empty());
+        // Without POS: zero-cost particle+particle wins over higher-cost noun+particle.
+        assert_eq!(no_pos[0].surface, "がは", "without POS: lower word-cost path wins");
+        // With POS: particle→particle penalty (5.0) reverses the ranking.
+        assert_eq!(with_pos[0].surface, "蛾は", "with POS: noun+particle beats particle+particle");
+    }
+
+    /// cost_pos_alpha=0 disables POS connection penalty (backwards-compatible).
+    #[test]
+    fn pos_alpha_zero_disables_pos_penalty() {
+        let i = idx_pos(vec![
+            ("あ", "亜", 100, "名詞"),
+            ("あ", "阿", 9000, "名詞"),
+        ]);
+        let config = ViterbiConfig { beam_width: 8, cost_alpha: 0.0, cost_pos_alpha: 0.0 };
+        let result = ViterbiLattice::top_k_candidates_with_config("あ", &i, &MockLm, 5, &config);
+        assert!(!result.is_empty());
+        assert_eq!(result[0].score, result.last().unwrap().score);
     }
 }
