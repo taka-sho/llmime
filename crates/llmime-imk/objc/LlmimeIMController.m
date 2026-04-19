@@ -14,6 +14,8 @@ extern uint32_t llmime_imk_get_candidate_count(uint64_t session_id);
 extern void     llmime_imk_get_candidate(uint64_t session_id, uint32_t index, char *buf, uint32_t buf_len);
 extern void     llmime_imk_candidate_selected(uint64_t session_id, const char *utf8);
 extern void     llmime_imk_candidate_selection_changed(uint64_t session_id, const char *utf8);
+extern void     llmime_imk_get_preedit(uint64_t session_id, char *buf, uint32_t buf_len);
+extern int      llmime_imk_commit_first(uint64_t session_id, char *buf, uint32_t buf_len);
 
 // ---------------------------------------------------------------------------
 // Session ID helper — object pointer used as a stable unique ID
@@ -43,6 +45,10 @@ static inline uint64_t session_id_of(id obj) {
 }
 
 - (void)deactivateServer:(id)sender {
+    // Discard any pending preedit before ending the session.
+    [sender setMarkedText:@""
+           selectionRange:NSMakeRange(0, 0)
+         replacementRange:NSMakeRange(NSNotFound, 0)];
     llmime_imk_session_end(session_id_of(self));
     [self.candidates hide];
     [super deactivateServer:sender];
@@ -58,6 +64,7 @@ static inline uint64_t session_id_of(id obj) {
 
     int consumed = llmime_imk_input_text(session_id_of(self), utf8, 0);
     if (consumed) {
+        [self updatePreedit:sender];
         [self updateCandidateWindow:sender];
     }
     return (consumed != 0);
@@ -70,11 +77,28 @@ static inline uint64_t session_id_of(id obj) {
     if (!chars || [chars length] == 0) return NO;
 
     unichar key = [chars characterAtIndex:0];
+
+    // Return key: commit first candidate (or preedit fallback).
+    if (key == NSCarriageReturnCharacter || key == '\n') {
+        char buf[1024];
+        int committed = llmime_imk_commit_first(session_id_of(self), buf, sizeof(buf));
+        if (committed) {
+            NSString *text = [NSString stringWithUTF8String:buf];
+            [sender insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+            [self.candidates hide];
+            [self updatePreedit:sender];
+            return YES;
+        }
+        return NO;
+    }
+
+    // Delete / Escape: handled by inputText:client: via Rust FFI.
     if (key == NSDeleteCharacter || key == 0x1B) {
         const char *utf8 = [chars UTF8String];
         int consumed = llmime_imk_input_text(session_id_of(self), utf8,
                                               (uint32_t)[event modifierFlags]);
         if (consumed) {
+            [self updatePreedit:sender];
             [self updateCandidateWindow:sender];
             return YES;
         }
@@ -105,16 +129,46 @@ static inline uint64_t session_id_of(id obj) {
 }
 
 - (void)candidateSelected:(NSAttributedString *)candidateString {
-    const char *utf8 = [[candidateString string] UTF8String];
+    NSString *text = [candidateString string];
+    const char *utf8 = [text UTF8String];
     if (utf8) {
         llmime_imk_candidate_selected(session_id_of(self), utf8);
     }
     [self.candidates hide];
+
+    id client = [self client];
+    if (client && text) {
+        [client insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+        // Clear preedit display after commit.
+        [client setMarkedText:@""
+               selectionRange:NSMakeRange(0, 0)
+             replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Private
+// Private helpers
 // ---------------------------------------------------------------------------
+
+/// Updates the preedit underline display in the client text view.
+- (void)updatePreedit:(id)sender {
+    char buf[1024];
+    llmime_imk_get_preedit(session_id_of(self), buf, sizeof(buf));
+    NSString *preedit = [NSString stringWithUTF8String:buf];
+    NSUInteger len = preedit ? [preedit length] : 0;
+    if (len > 0) {
+        NSDictionary *attrs = @{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle)};
+        NSAttributedString *marked = [[NSAttributedString alloc] initWithString:preedit
+                                                                     attributes:attrs];
+        [sender setMarkedText:marked
+               selectionRange:NSMakeRange(len, 0)
+             replacementRange:NSMakeRange(NSNotFound, 0)];
+    } else {
+        [sender setMarkedText:@""
+               selectionRange:NSMakeRange(0, 0)
+             replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
+}
 
 - (void)updateCandidateWindow:(id)sender {
     NSArray *cands = [self candidates:sender];

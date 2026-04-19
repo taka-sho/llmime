@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/llmime-core", "crates/llmime-cli", "crates/llmime-tsf"]
+members = ["crates/llmime-core", "crates/llmime-cli", "crates/llmime-tsf", "crates/llmime-imk"]
 resolver = "2"
 
 [workspace.dependencies]
