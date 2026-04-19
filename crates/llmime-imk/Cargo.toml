@@ -11,6 +11,12 @@ crate-type = ["cdylib", "rlib"]
 llmime-core = { path = "../llmime-core" }
 anyhow = "1"
 log = "0.4"
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 
 [build-dependencies]
 cc = "1"
