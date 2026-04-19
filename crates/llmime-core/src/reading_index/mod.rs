@@ -1,5 +1,7 @@
+pub mod lattice;
 pub mod mozc;
 
+pub use lattice::{LmScorer, ViterbiConfig, ViterbiLattice};
 pub use mozc::MozcReadingIndex;
 
 #[derive(Debug, Clone, PartialEq)]
