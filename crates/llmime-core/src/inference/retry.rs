@@ -47,7 +47,7 @@ where
     let mut attempt = 0u32;
     loop {
         let remaining = deadline.checked_duration_since(Instant::now());
-        if remaining.map_or(true, |d| d.is_zero()) {
+        if remaining.is_none_or(|d| d.is_zero()) {
             return Err(InferenceError::Timeout(Duration::ZERO));
         }
 
