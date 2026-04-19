@@ -10,6 +10,12 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 llmime-core = { path = "../llmime-core" }
 log = "0.4"
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

@@ -1,6 +1,9 @@
 //! Windows Text Services Framework (TSF) integration for llmime.
 //! All TSF-specific code is gated behind #[cfg(target_os = "windows")].
 
+pub mod tsf_adapter;
+pub use tsf_adapter::TsfLiveAdapter;
+
 #[cfg(target_os = "windows")]
 mod state;
 
