@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TESTSET="${REPO_ROOT}/tests/lm_eval/testset.csv"
 MODEL="${MODEL:-${REPO_ROOT}/models/llmime.klm}"
-DICT="${VIBRATO_DICT:-${REPO_ROOT}/dict/bccwj-suw+unidic-cwj-3_1_1-extracted+compact/system.dic.zst}"
+DICT="${MOZC_DICT:-${REPO_ROOT}/vendor/mozc_oss}"
 TOP_K="${TOP_K:-5}"
 DATE=$(date +%Y%m%d)
 OUTPUT="${REPO_ROOT}/reports/lm_eval_${DATE}.md"
@@ -21,7 +21,7 @@ mkdir -p "${REPO_ROOT}/reports"
 python3 "${REPO_ROOT}/scripts/evaluate_lm.py" \
     --testset "${TESTSET}" \
     --model "${MODEL}" \
-    --vibrato-dict "${DICT}" \
+    --mozc-dict "${DICT}" \
     --top-k "${TOP_K}" \
     --output "${OUTPUT}" \
     "$@"

@@ -1,6 +1,6 @@
 """pytest unit tests for evaluate_lm.py.
 
-Tests use dummy CSV and mock LM/tokenizer — no real kenlm or vibrato needed.
+Tests use dummy CSV and mock LM/index — no real kenlm or mozc dict needed.
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ compute_metrics = mod.compute_metrics
 determine_overall = mod.determine_overall
 load_testset = mod.load_testset
 render_report = mod.render_report
+MozcReadingIndex = mod.MozcReadingIndex
+MozcConverter = mod.MozcConverter
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -221,9 +223,138 @@ class TestRenderReport:
         lm, model_file = self._make_lm_stub(tmp_path)
         testset_path = tmp_path / "t.csv"
         testset_path.touch()
-        dict_path = tmp_path / "system.dic"
+        mozc_dir = tmp_path / "mozc_oss"
         metrics = {"total": 10, "m1": 30.0, "m2": 40.0, "m3": {}, "m4": 0.0, "m5": 0.0}
         results = [_make_result("general", "r", "e", False, False) for _ in range(10)]
-        report = render_report(metrics, results, model_file, testset_path, dict_path, lm, verbose=False)
+        report = render_report(metrics, results, model_file, testset_path, mozc_dir, lm, verbose=False)
         assert "カテゴリ別" in report
         assert "FAIL" in report
+
+
+# ── MozcReadingIndex ──────────────────────────────────────────────────────────
+
+def _write_mozc_dict(tmp_path: Path, entries: list[tuple]) -> Path:
+    """Write dummy mozc dictionary00.txt and return the dir path."""
+    d = tmp_path / "mozc_oss"
+    d.mkdir()
+    with open(d / "dictionary00.txt", "w", encoding="utf-8") as f:
+        for reading, lid, rid, cost, surface in entries:
+            f.write(f"{reading}\t{lid}\t{rid}\t{cost}\t{surface}\n")
+    return d
+
+
+DUMMY_MOZC_ENTRIES = [
+    ("こうえん", "1851", "1851", "5000", "公園"),
+    ("こうえん", "1851", "1851", "6000", "講演"),
+    ("こうえん", "1851", "1851", "7000", "公演"),
+    ("たべる", "1851", "1851", "4000", "食べる"),
+    ("とうきょう", "1851", "1851", "3000", "東京"),
+]
+
+
+class TestMozcReadingIndex:
+    def test_exact_lookup(self, tmp_path):
+        d = _write_mozc_dict(tmp_path, DUMMY_MOZC_ENTRIES)
+        idx = MozcReadingIndex(d)
+        results = idx.lookup("こうえん")
+        surfaces = [s for s, _ in results]
+        assert "公園" in surfaces
+        assert "講演" in surfaces
+        assert "公演" in surfaces
+
+    def test_empty_lookup(self, tmp_path):
+        d = _write_mozc_dict(tmp_path, DUMMY_MOZC_ENTRIES)
+        idx = MozcReadingIndex(d)
+        assert idx.lookup("xxxxunknownxxxx") == []
+
+    def test_multi_entry_costs(self, tmp_path):
+        d = _write_mozc_dict(tmp_path, DUMMY_MOZC_ENTRIES)
+        idx = MozcReadingIndex(d)
+        results = idx.lookup("こうえん")
+        costs = [c for _, c in results]
+        assert len(costs) == 3
+        assert all(isinstance(c, int) for c in costs)
+
+    def test_single_entry(self, tmp_path):
+        d = _write_mozc_dict(tmp_path, DUMMY_MOZC_ENTRIES)
+        idx = MozcReadingIndex(d)
+        results = idx.lookup("たべる")
+        assert len(results) == 1
+        assert results[0][0] == "食べる"
+
+    def test_malformed_line_skipped(self, tmp_path):
+        d = tmp_path / "mozc_oss"
+        d.mkdir()
+        with open(d / "dictionary00.txt", "w") as f:
+            f.write("badline\n")
+            f.write("こうえん\t1\t1\t5000\t公園\n")
+        idx = MozcReadingIndex(d)
+        assert idx.lookup("こうえん") == [("公園", 5000)]
+
+    def test_missing_dict_files_skipped(self, tmp_path):
+        d = tmp_path / "mozc_oss"
+        d.mkdir()
+        with open(d / "dictionary00.txt", "w") as f:
+            f.write("たべる\t1\t1\t4000\t食べる\n")
+        idx = MozcReadingIndex(d)
+        assert idx.lookup("たべる") == [("食べる", 4000)]
+
+
+# ── MozcConverter ─────────────────────────────────────────────────────────────
+
+class _MockLM:
+    """Mock LM that scores by length (longer = better) for testing."""
+    def score(self, sentence: str) -> float:
+        return float(len(sentence))
+
+    def score_batch(self, sentences: list) -> list:
+        return [self.score(s) for s in sentences]
+
+    def n_gram_order(self): return 3
+    def file_size_mb(self): return 0.0
+
+
+class TestMozcConverter:
+    def _make_converter(self, tmp_path):
+        d = _write_mozc_dict(tmp_path, DUMMY_MOZC_ENTRIES)
+        lm = _MockLM()
+        return MozcConverter(d, lm), d
+
+    def test_known_reading_returns_candidates(self, tmp_path):
+        conv, _ = self._make_converter(tmp_path)
+        cands = conv.convert_candidates("こうえん", top_k=5)
+        assert len(cands) >= 1
+        assert all(isinstance(c, str) for c in cands)
+
+    def test_oov_returns_reading_itself(self, tmp_path):
+        conv, _ = self._make_converter(tmp_path)
+        cands = conv.convert_candidates("xxxxunknownxxxx", top_k=5)
+        assert len(cands) >= 1
+
+    def test_topk_limit_respected(self, tmp_path):
+        conv, _ = self._make_converter(tmp_path)
+        cands = conv.convert_candidates("こうえん", top_k=2)
+        assert len(cands) <= 2
+
+    def test_cost_lm_combined_ordering(self, tmp_path):
+        """Lower cost + higher LM score should rank higher."""
+        entries = [
+            ("あ", "1", "1", "100", "A"),   # low cost
+            ("あ", "1", "1", "9000", "AA"),  # high cost
+        ]
+        d = _write_mozc_dict(tmp_path, entries)
+
+        class _ConstLM:
+            def score(self, s): return 0.0  # constant LM — cost alone decides
+            def score_batch(self, ss): return [0.0] * len(ss)
+        conv = MozcConverter(d, _ConstLM())
+        cands = conv.convert_candidates("あ", top_k=2)
+        assert cands[0] == "A"  # lower cost wins when LM is constant
+
+    def test_context_left_passed_to_lm(self, tmp_path):
+        """Candidates with context_left should be scored differently than without."""
+        conv, _ = self._make_converter(tmp_path)
+        cands_no_ctx = conv.convert_candidates("こうえん", context_left="", top_k=3)
+        cands_with_ctx = conv.convert_candidates("こうえん", context_left="大学の", top_k=3)
+        assert len(cands_no_ctx) >= 1
+        assert len(cands_with_ctx) >= 1
