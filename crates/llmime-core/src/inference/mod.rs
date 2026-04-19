@@ -7,6 +7,7 @@ pub mod inferencer;
 pub mod local_llm;
 pub mod local_ngram;
 pub mod mode;
+pub mod retry;
 pub mod token_counter;
 pub mod warmup;
 pub mod workers_ai;

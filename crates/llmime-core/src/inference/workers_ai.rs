@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::inference::{
     capabilities::InferencerCapabilities,
     error::InferenceError,
     inferencer::{CandidateSource, CandidateWithScore, Inferencer},
+    retry::{with_retry, RetryConfig, RetryDecision},
 };
 
 pub struct WorkersAIInferencer {
@@ -14,6 +15,7 @@ pub struct WorkersAIInferencer {
     model_id: String,
     timeout: Duration,
     client: reqwest::Client,
+    retry_config: RetryConfig,
 }
 
 impl WorkersAIInferencer {
@@ -24,6 +26,7 @@ impl WorkersAIInferencer {
             model_id,
             timeout: Duration::from_millis(1500),
             client: reqwest::Client::new(),
+            retry_config: RetryConfig::default(),
         }
     }
 
@@ -105,9 +108,7 @@ fn build_user_prompt(reading: &str, candidates: &[CandidateWithScore]) -> String
 }
 
 fn parse_best_index(response: &str, len: usize) -> Option<usize> {
-    // Try JSON parse first
     let trimmed = response.trim();
-    // Extract JSON object if embedded in other text
     if let Some(start) = trimmed.find('{') {
         if let Some(end) = trimmed.rfind('}') {
             let json_str = &trimmed[start..=end];
@@ -120,7 +121,6 @@ fn parse_best_index(response: &str, len: usize) -> Option<usize> {
         }
     }
 
-    // Fallback: plain number
     if let Ok(n) = trimmed.parse::<usize>() {
         if n >= 1 && n <= len {
             return Some(n - 1);
@@ -137,48 +137,42 @@ fn parse_best_index(response: &str, len: usize) -> Option<usize> {
     None
 }
 
-async fn call_workers_ai(
+fn classify_reqwest_error(e: reqwest::Error) -> RetryDecision<InferenceError> {
+    if e.is_connect() || e.is_timeout() {
+        RetryDecision::Retryable(InferenceError::Upstream(e.into()))
+    } else {
+        RetryDecision::Fatal(InferenceError::Upstream(e.into()))
+    }
+}
+
+async fn call_workers_ai_once(
     client: &reqwest::Client,
     url: &str,
     api_token: &str,
-    system_prompt: String,
-    user_prompt: String,
-    timeout: Duration,
-) -> Result<WorkersAIResponse, InferenceError> {
-    let payload = WorkersAIRequest {
-        messages: vec![
-            WorkersAIMessage {
-                role: "system".to_string(),
-                content: system_prompt,
-            },
-            WorkersAIMessage {
-                role: "user".to_string(),
-                content: user_prompt,
-            },
-        ],
-    };
+    payload: &WorkersAIRequest,
+    remaining: Duration,
+) -> Result<WorkersAIResponse, RetryDecision<InferenceError>> {
+    let request = client.post(url).bearer_auth(api_token).json(payload);
 
-    let request = client.post(url).bearer_auth(api_token).json(&payload);
-
-    let response = tokio::time::timeout(timeout, request.send())
+    let response = tokio::time::timeout(remaining, request.send())
         .await
-        .map_err(|_| InferenceError::Timeout(timeout))?
-        .map_err(|e| InferenceError::Upstream(e.into()))?;
+        .map_err(|_| RetryDecision::Fatal(InferenceError::Timeout(remaining)))?
+        .map_err(classify_reqwest_error)?;
 
-    if !response.status().is_success() {
-        let status = response.status();
+    let status = response.status();
+    if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(InferenceError::Upstream(anyhow::anyhow!(
-            "HTTP {}: {}",
-            status,
-            body
-        )));
+        let err = InferenceError::Upstream(anyhow::anyhow!("HTTP {}: {}", status, body));
+        return Err(match status.as_u16() {
+            429 | 502 | 503 | 504 => RetryDecision::Retryable(err),
+            _ => RetryDecision::Fatal(err),
+        });
     }
 
     response
         .json()
         .await
-        .map_err(|e| InferenceError::Upstream(e.into()))
+        .map_err(|e| RetryDecision::Fatal(InferenceError::Upstream(e.into())))
 }
 
 #[async_trait]
@@ -234,15 +228,27 @@ impl Inferencer for WorkersAIInferencer {
             "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
             self.account_id, self.model_id
         );
+        let payload = WorkersAIRequest {
+            messages: vec![
+                WorkersAIMessage {
+                    role: "system".to_string(),
+                    content: system_prompt,
+                },
+                WorkersAIMessage {
+                    role: "user".to_string(),
+                    content: user_prompt,
+                },
+            ],
+        };
 
-        let api_resp = call_workers_ai(
-            &self.client,
-            &url,
-            &self.api_token,
-            system_prompt,
-            user_prompt,
-            self.timeout,
-        )
+        let deadline = Instant::now() + self.timeout;
+        let client = &self.client;
+        let api_resp = with_retry(&self.retry_config, deadline, || {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or(Duration::ZERO);
+            call_workers_ai_once(client, &url, &self.api_token, &payload, remaining)
+        })
         .await?;
 
         let len = candidates.len();
@@ -271,6 +277,7 @@ mod tests {
         timeout: Duration,
         client: reqwest::Client,
         base_url: String,
+        retry_config: RetryConfig,
     }
 
     impl TestWorkersAIInferencer {
@@ -282,6 +289,12 @@ mod tests {
                 timeout: Duration::from_millis(1500),
                 client: reqwest::Client::new(),
                 base_url,
+                retry_config: RetryConfig {
+                    max_retries: 2,
+                    initial_backoff_ms: 1,
+                    backoff_factor: 1.0,
+                    jitter_pct: 0.0,
+                },
             }
         }
 
@@ -306,15 +319,27 @@ mod tests {
                 "{}/client/v4/accounts/{}/ai/run/{}",
                 self.base_url, self.account_id, self.model_id
             );
+            let payload = WorkersAIRequest {
+                messages: vec![
+                    WorkersAIMessage {
+                        role: "system".to_string(),
+                        content: system_prompt,
+                    },
+                    WorkersAIMessage {
+                        role: "user".to_string(),
+                        content: user_prompt,
+                    },
+                ],
+            };
 
-            let api_resp = call_workers_ai(
-                &self.client,
-                &url,
-                &self.api_token,
-                system_prompt,
-                user_prompt,
-                self.timeout,
-            )
+            let deadline = Instant::now() + self.timeout;
+            let client = &self.client;
+            let api_resp = with_retry(&self.retry_config, deadline, || {
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .unwrap_or(Duration::ZERO);
+                call_workers_ai_once(client, &url, &self.api_token, &payload, remaining)
+            })
             .await?;
 
             let len = candidates.len();
@@ -548,5 +573,130 @@ mod tests {
         assert!(caps.supports_rerank);
         assert!(!caps.supports_right_context);
         assert_eq!(inf.name(), "workers-ai");
+    }
+
+    mod p4_retry {
+        use super::*;
+
+        fn make_inferencer(server_uri: String) -> TestWorkersAIInferencer {
+            TestWorkersAIInferencer::new(server_uri)
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_429_retries_and_succeeds() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(429).set_body_string("Too Many Requests"))
+                .up_to_n_times(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "result": { "response": "{\"best_index\": 1, \"confidence\": 0.9}" },
+                    "success": true
+                })))
+                .mount(&server)
+                .await;
+
+            let inferencer = make_inferencer(server.uri());
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap()[0].surface, "天気");
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_503_retries_and_succeeds() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(503).set_body_string("Service Unavailable"))
+                .up_to_n_times(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "result": { "response": "{\"best_index\": 1, \"confidence\": 0.9}" },
+                    "success": true
+                })))
+                .mount(&server)
+                .await;
+
+            let inferencer = make_inferencer(server.uri());
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_max_retry_exceeded() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(503).set_body_string("Service Unavailable"))
+                .mount(&server)
+                .await;
+
+            let inferencer = make_inferencer(server.uri());
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(matches!(result, Err(InferenceError::Upstream(_))));
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_budget_exceeded() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(
+                    ResponseTemplate::new(429)
+                        .set_delay(Duration::from_millis(60))
+                        .set_body_string("Too Many Requests"),
+                )
+                .mount(&server)
+                .await;
+
+            let inferencer =
+                TestWorkersAIInferencer::new(server.uri()).with_timeout(Duration::from_millis(50));
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(matches!(result, Err(InferenceError::Timeout(_))));
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_400_no_retry() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(400).set_body_string("Bad Request"))
+                .mount(&server)
+                .await;
+
+            let inferencer = make_inferencer(server.uri());
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(matches!(result, Err(InferenceError::Upstream(_))));
+        }
+
+        #[tokio::test]
+        async fn test_p4_retry_502_retries() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(502).set_body_string("Bad Gateway"))
+                .up_to_n_times(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(".*/ai/run/.*"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "result": { "response": "2" },
+                    "success": true
+                })))
+                .mount(&server)
+                .await;
+
+            let inferencer = make_inferencer(server.uri());
+            let result = inferencer.rerank("てんき", make_candidates(), None).await;
+            assert!(result.is_ok());
+        }
     }
 }
