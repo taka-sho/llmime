@@ -27,7 +27,11 @@ pub struct ViterbiConfig {
 
 impl Default for ViterbiConfig {
     fn default() -> Self {
-        Self { beam_width: 8, cost_alpha: 0.01, cost_pos_alpha: 0.05 }
+        Self {
+            beam_width: 8,
+            cost_alpha: 0.01,
+            cost_pos_alpha: 0.05,
+        }
     }
 }
 
@@ -51,7 +55,10 @@ impl ViterbiLattice {
         beam_width: usize,
         top_k: usize,
     ) -> Vec<Candidate> {
-        let config = ViterbiConfig { beam_width, ..ViterbiConfig::default() };
+        let config = ViterbiConfig {
+            beam_width,
+            ..ViterbiConfig::default()
+        };
         Self::search(reading, index, lm, top_k, &config)
     }
 
@@ -84,13 +91,19 @@ impl ViterbiLattice {
 
         // beam[pos] = candidate paths that have consumed `pos` chars
         let mut beam: Vec<Vec<BeamEntry>> = vec![vec![]; total + 1];
-        beam[0].push(BeamEntry { surfaces: vec![], last_pos: PosClass::Unknown, score: 0.0 });
+        beam[0].push(BeamEntry {
+            surfaces: vec![],
+            last_pos: PosClass::Unknown,
+            score: 0.0,
+        });
 
         for pos in 0..total {
             // Prune at current position before expanding
             if beam[pos].len() > beam_width {
                 beam[pos].sort_by(|a, b| {
-                    b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 beam[pos].truncate(beam_width);
             }
@@ -144,8 +157,11 @@ impl ViterbiLattice {
         }
 
         let final_beam = &mut beam[total];
-        final_beam
-            .sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        final_beam.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         final_beam.truncate(top_k);
 
         final_beam
@@ -204,7 +220,10 @@ mod tests {
 
     fn idx(entries: Vec<(&str, &str, i32)>) -> MockIndex {
         MockIndex {
-            entries: entries.into_iter().map(|(r, s, c)| (r.to_string(), s.to_string(), c)).collect(),
+            entries: entries
+                .into_iter()
+                .map(|(r, s, c)| (r.to_string(), s.to_string(), c))
+                .collect(),
         }
     }
 
@@ -310,7 +329,11 @@ mod tests {
         struct PreferredLm;
         impl LmScorer for PreferredLm {
             fn score_words(&self, words: &[&str]) -> f64 {
-                if words.contains(&"葉") { -1.0 } else { -5.0 }
+                if words.contains(&"葉") {
+                    -1.0
+                } else {
+                    -5.0
+                }
             }
         }
         let result = ViterbiLattice::top_k_candidates("は", &i, &PreferredLm, 8, 5);
@@ -350,7 +373,11 @@ mod tests {
     #[test]
     fn cost_alpha_zero_ignores_cost() {
         let i = idx(vec![("あ", "亜", 100), ("あ", "阿", 9000)]);
-        let config = ViterbiConfig { beam_width: 8, cost_alpha: 0.0, cost_pos_alpha: 0.0 };
+        let config = ViterbiConfig {
+            beam_width: 8,
+            cost_alpha: 0.0,
+            cost_pos_alpha: 0.0,
+        };
         let result = ViterbiLattice::top_k_candidates_with_config("あ", &i, &MockLm, 5, &config);
         assert!(!result.is_empty());
         // Both candidates have same LM score, so scores should be equal
@@ -373,9 +400,9 @@ mod tests {
     #[test]
     fn pos_bigram_fixes_particle_chain_segmentation() {
         let i = idx_pos(vec![
-            ("が", "が", 0, "助詞"),      // particle が
-            ("が", "蛾", 5000, "名詞"),   // moth 蛾 (same reading)
-            ("は", "は", 0, "助詞"),      // topic particle は
+            ("が", "が", 0, "助詞"),    // particle が
+            ("が", "蛾", 5000, "名詞"), // moth 蛾 (same reading)
+            ("は", "は", 0, "助詞"),    // topic particle は
         ]);
 
         let no_pos = ViterbiLattice::top_k_candidates_with_config(
@@ -383,32 +410,47 @@ mod tests {
             &i,
             &MockLm,
             5,
-            &ViterbiConfig { beam_width: 8, cost_alpha: 0.001, cost_pos_alpha: 0.0 },
+            &ViterbiConfig {
+                beam_width: 8,
+                cost_alpha: 0.001,
+                cost_pos_alpha: 0.0,
+            },
         );
         let with_pos = ViterbiLattice::top_k_candidates_with_config(
             "がは",
             &i,
             &MockLm,
             5,
-            &ViterbiConfig { beam_width: 8, cost_alpha: 0.001, cost_pos_alpha: 1.0 },
+            &ViterbiConfig {
+                beam_width: 8,
+                cost_alpha: 0.001,
+                cost_pos_alpha: 1.0,
+            },
         );
 
         assert!(!no_pos.is_empty());
         assert!(!with_pos.is_empty());
         // Without POS: zero-cost particle+particle wins over higher-cost noun+particle.
-        assert_eq!(no_pos[0].surface, "がは", "without POS: lower word-cost path wins");
+        assert_eq!(
+            no_pos[0].surface, "がは",
+            "without POS: lower word-cost path wins"
+        );
         // With POS: particle→particle penalty (5.0) reverses the ranking.
-        assert_eq!(with_pos[0].surface, "蛾は", "with POS: noun+particle beats particle+particle");
+        assert_eq!(
+            with_pos[0].surface, "蛾は",
+            "with POS: noun+particle beats particle+particle"
+        );
     }
 
     /// cost_pos_alpha=0 disables POS connection penalty (backwards-compatible).
     #[test]
     fn pos_alpha_zero_disables_pos_penalty() {
-        let i = idx_pos(vec![
-            ("あ", "亜", 100, "名詞"),
-            ("あ", "阿", 9000, "名詞"),
-        ]);
-        let config = ViterbiConfig { beam_width: 8, cost_alpha: 0.0, cost_pos_alpha: 0.0 };
+        let i = idx_pos(vec![("あ", "亜", 100, "名詞"), ("あ", "阿", 9000, "名詞")]);
+        let config = ViterbiConfig {
+            beam_width: 8,
+            cost_alpha: 0.0,
+            cost_pos_alpha: 0.0,
+        };
         let result = ViterbiLattice::top_k_candidates_with_config("あ", &i, &MockLm, 5, &config);
         assert!(!result.is_empty());
         assert_eq!(result[0].score, result.last().unwrap().score);

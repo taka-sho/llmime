@@ -5,6 +5,7 @@ pub struct LlmimePaths {
     pub models_dir: PathBuf,
     pub mozc_dir: PathBuf,
     pub db_path: PathBuf,
+    pub user_dict_path: PathBuf,
     pub config_dir: PathBuf,
 }
 
@@ -22,6 +23,7 @@ impl LlmimePaths {
             models_dir: base.join("models"),
             mozc_dir: base.join("vendor").join("mozc_oss"),
             db_path: base.join("llmime.db"),
+            user_dict_path: base.join("user_dict.sqlite"),
             config_dir: dirs::config_dir()
                 .expect("Cannot resolve config dir")
                 .join("llmime"),
@@ -35,6 +37,7 @@ impl LlmimePaths {
             models_dir: repo_root.join("models"),
             mozc_dir: repo_root.join("vendor").join("mozc_oss"),
             db_path: repo_root.join("llmime.db"),
+            user_dict_path: repo_root.join("user_dict.sqlite"),
             config_dir: repo_root.join("config"),
             data_dir: repo_root,
         }
@@ -59,7 +62,10 @@ mod tests {
         std::env::set_var("LLMIME_DATA_DIR", "/tmp/llmime_models_test");
         let paths = LlmimePaths::resolve();
         std::env::remove_var("LLMIME_DATA_DIR");
-        assert_eq!(paths.models_dir, Path::new("/tmp/llmime_models_test/models"));
+        assert_eq!(
+            paths.models_dir,
+            Path::new("/tmp/llmime_models_test/models")
+        );
     }
 
     #[test]

@@ -45,11 +45,7 @@ impl LanguageModel for KenLMModel {
                 // The `query` tool outputs "Total: <log10_prob>" either on its own
                 // line or tab-separated on the last word line (single-sentence mode).
                 text.find("Total:")
-                    .and_then(|pos| {
-                        text[pos + "Total:".len()..]
-                            .split_whitespace()
-                            .next()
-                    })
+                    .and_then(|pos| text[pos + "Total:".len()..].split_whitespace().next())
                     .and_then(|v| v.parse::<f64>().ok())
                     .unwrap_or(f64::NEG_INFINITY)
             }

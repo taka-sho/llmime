@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use llmime_core::{
-    KenLMModel, LanguageModel, LlmimePaths, MozcReadingIndex, NgramScorer,
-    ReadingIndex, Scorer, VibratoTokenizer, ViterbiLattice,
+    KenLMModel, LanguageModel, LlmimePaths, MozcReadingIndex, NgramScorer, ReadingIndex, Scorer,
+    VibratoTokenizer, ViterbiLattice,
 };
 
 #[derive(Parser)]
@@ -69,7 +69,11 @@ fn main() -> anyhow::Result<()> {
 
             let resolved_mozc = mozc_dict.or_else(|| {
                 let d = sys_paths.mozc_dir.clone();
-                if d.exists() { Some(d) } else { None }
+                if d.exists() {
+                    Some(d)
+                } else {
+                    None
+                }
             });
 
             if let Some(mozc_dir) = resolved_mozc {

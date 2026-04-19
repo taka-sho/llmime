@@ -37,7 +37,7 @@ pub fn connection_penalty(prev: PosClass, next: PosClass) -> f64 {
         (Copula, SentFinal) => 0.0,
         // 可能だがやや珍しい遷移
         (Noun, Verb) | (Noun, Adjective) => 1.0,
-        (Noun, Noun) => 1.5,        // 複合名詞: allowed but adds cost
+        (Noun, Noun) => 1.5, // 複合名詞: allowed but adds cost
         (Adjective, Particle) | (Adjective, Verb) => 1.0,
         (Adjective, Adjective) => 1.5,
         (Copula, Particle) | (Copula, Noun) | (Copula, Verb) => 1.5,
@@ -45,7 +45,7 @@ pub fn connection_penalty(prev: PosClass, next: PosClass) -> f64 {
         // 不自然な遷移 — large penalty
         (Particle, Particle) => 5.0,
         (Particle, Copula) => 3.0,
-        (SentFinal, _) => 8.0,      // sentence-final should not be followed by anything
+        (SentFinal, _) => 8.0, // sentence-final should not be followed by anything
         // BOS / OOV: no penalty
         (Unknown, _) => 0.0,
         // Other unexpected combinations

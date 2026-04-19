@@ -147,8 +147,7 @@ mod tests {
     #[test]
     fn parse_feature_unidic_lite() {
         // UniDic-lite feature with reading at col 9
-        let feature =
-            "名詞,固有名詞,地名,一般,*,*,トウキョウ,東京,東京,トウキョウ,東京,トウキョウ";
+        let feature = "名詞,固有名詞,地名,一般,*,*,トウキョウ,東京,東京,トウキョウ,東京,トウキョウ";
         let m = parse_feature("東京", feature);
         assert_eq!(m.pos, "名詞");
         assert_eq!(m.pos_detail, "固有名詞");
@@ -165,9 +164,10 @@ mod tests {
     #[test]
     #[ignore]
     fn vibrato_tokenizer_integration() {
-        let dict_path = std::path::Path::new(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../dict/system.dic"),
-        );
+        let dict_path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../dict/system.dic"
+        ));
         if !dict_path.exists() {
             return;
         }
