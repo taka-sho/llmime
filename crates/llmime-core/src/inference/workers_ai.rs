@@ -39,7 +39,7 @@ impl WorkersAIInferencer {
         let api_token = std::env::var("CLOUDFLARE_API_TOKEN")
             .map_err(|_| anyhow::anyhow!("CLOUDFLARE_API_TOKEN not set"))?;
         let model_id = std::env::var("WORKERS_AI_MODEL_ID")
-            .unwrap_or_else(|_| "@cf/meta/llama-3.1-8b-instruct-fast".to_string());
+            .unwrap_or_else(|_| "@cf/qwen/qwen3-30b-a3b-fp8".to_string());
         Ok(Self::new(account_id, api_token, model_id))
     }
 }
@@ -190,7 +190,7 @@ mod tests {
                 inner: WorkersAIInferencer {
                     account_id: "test_account".to_string(),
                     api_token: "test_token".to_string(),
-                    model_id: "@cf/meta/llama-3.1-8b-instruct-fast".to_string(),
+                    model_id: "@cf/qwen/qwen3-30b-a3b-fp8".to_string(),
                     timeout: Duration::from_millis(1500),
                     client: reqwest::Client::new(),
                 },
@@ -389,7 +389,7 @@ mod tests {
         let inf = WorkersAIInferencer::new(
             "acct".to_string(),
             "tok".to_string(),
-            "@cf/meta/llama-3.1-8b-instruct-fast".to_string(),
+            "@cf/qwen/qwen3-30b-a3b-fp8".to_string(),
         );
         let caps = inf.capabilities();
         assert!(caps.supports_rerank);
