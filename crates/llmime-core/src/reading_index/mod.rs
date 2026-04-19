@@ -1,8 +1,10 @@
 pub mod lattice;
 pub mod mozc;
+pub mod pos_connection;
 
 pub use lattice::{LmScorer, ViterbiConfig, ViterbiLattice};
 pub use mozc::MozcReadingIndex;
+pub use pos_connection::{PosClass, classify as classify_pos, connection_penalty};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReadingEntry {

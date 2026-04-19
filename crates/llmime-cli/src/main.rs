@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use llmime_core::{
-    Candidate, KenLMModel, LanguageModel, LlmimePaths, MozcReadingIndex, NgramScorer,
-    ReadingIndex, Scorer, VibratoTokenizer,
+    KenLMModel, LanguageModel, LlmimePaths, MozcReadingIndex, NgramScorer,
+    ReadingIndex, Scorer, VibratoTokenizer, ViterbiLattice,
 };
 
 #[derive(Parser)]
@@ -35,38 +35,17 @@ fn run_convert(scorer: &dyn Scorer, reading: &str, top_k: usize) -> anyhow::Resu
     Ok(())
 }
 
-fn run_convert_mozc<L: LanguageModel>(
-    index: &dyn ReadingIndex,
+fn run_convert_mozc<I: ReadingIndex, L: LanguageModel>(
+    index: &I,
     lm: &L,
     reading: &str,
     top_k: usize,
 ) -> anyhow::Result<()> {
-    let entries = index.lookup(reading);
-    if entries.is_empty() {
+    let candidates = ViterbiLattice::top_k_candidates(reading, index, lm, 8, top_k);
+    if candidates.is_empty() {
         println!("{:.6}\t{}\t{}", 0.0f64, reading, reading);
         return Ok(());
     }
-
-    let mut candidates: Vec<Candidate> = entries
-        .into_iter()
-        .map(|e| {
-            let score = lm.score(&[e.surface.as_str()]);
-            Candidate {
-                surface: e.surface,
-                reading: e.reading,
-                score,
-            }
-        })
-        .collect();
-
-    candidates.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    candidates.dedup_by(|a, b| a.surface == b.surface);
-    candidates.truncate(top_k);
-
     for c in candidates {
         println!("{:.6}\t{}\t{}", c.score, c.surface, c.reading);
     }

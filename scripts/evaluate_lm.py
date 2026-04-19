@@ -132,9 +132,56 @@ def _score_batch_via_cli(model_path: Path, sentences: list[str]) -> list[float]:
     return [float("-inf")] * len(sentences)
 
 
+def _lid_to_pos(lid: int) -> str:
+    """Map mozc IPAdic left_id to a POS string (mirrors Rust lid_to_pos)."""
+    if 172 <= lid <= 180:
+        return "助動詞"
+    if lid in (215, 423):
+        return "終助詞"
+    if lid in (591, 633) or 837 <= lid <= 870:
+        return "動詞"
+    if lid in (726, 830, 2418, 2459) or 2467 <= lid <= 2476:
+        return "形容詞"
+    if 168 <= lid <= 720:
+        return "助詞"
+    if 1280 <= lid <= 2671:
+        return "名詞"
+    return "名詞"
+
+
+# POS bigram connection penalty (in mozc cost units, lower = better).
+# Mirrors Rust pos_connection::connection_penalty, scaled to match word costs.
+_POS_PENALTY: dict[tuple[str, str], int] = {
+    # 自然な遷移 (penalty = 0)
+    ("名詞", "助詞"): 0, ("名詞", "助動詞"): 0,
+    ("形容詞", "名詞"): 0, ("形容詞", "助動詞"): 0, ("形容詞", "助詞"): 500,
+    ("動詞", "助詞"): 0, ("動詞", "助動詞"): 0, ("動詞", "終助詞"): 0,
+    ("助詞", "名詞"): 0, ("助詞", "動詞"): 0, ("助詞", "形容詞"): 0,
+    ("助動詞", "終助詞"): 0, ("助動詞", "助詞"): 500,
+    # 可能だが稀な遷移
+    ("名詞", "動詞"): 1000, ("名詞", "形容詞"): 1000, ("名詞", "名詞"): 1500,
+    ("形容詞", "形容詞"): 1500, ("動詞", "動詞"): 2000,
+    ("助動詞", "名詞"): 1500, ("助動詞", "動詞"): 1500,
+    # 悪い遷移
+    ("助詞", "助詞"): 5000, ("助詞", "助動詞"): 3000,
+}
+_POS_PENALTY_DEFAULT = 2500
+_POS_PENALTY_SENT_FINAL_NEXT = 8000
+
+
+def _pos_connection_penalty(prev_pos: str, next_pos: str) -> int:
+    """Return POS bigram connection penalty in mozc cost units."""
+    if not prev_pos:   # BOS
+        return 0
+    if prev_pos == "終助詞":
+        return _POS_PENALTY_SENT_FINAL_NEXT
+    return _POS_PENALTY.get((prev_pos, next_pos), _POS_PENALTY_DEFAULT)
+
+
 class MozcReadingIndex:
     def __init__(self, dict_dir: Path):
-        self.map: dict[str, list[tuple[str, int]]] = defaultdict(list)
+        # Store (surface, cost, pos_str) per reading
+        self.map: dict[str, list[tuple[str, int, str]]] = defaultdict(list)
         for i in range(10):
             dict_file = dict_dir / f"dictionary0{i}.txt"
             if not dict_file.exists():
@@ -144,22 +191,25 @@ class MozcReadingIndex:
                     parts = line.rstrip("\n").split("\t")
                     if len(parts) < 5:
                         continue
-                    reading, _lid, _rid, cost, surface = parts[:5]
+                    reading, lid_str, _rid, cost, surface = parts[:5]
                     try:
-                        self.map[reading].append((surface, int(cost)))
+                        lid = int(lid_str)
+                        pos = _lid_to_pos(lid)
+                        self.map[reading].append((surface, int(cost), pos))
                     except ValueError:
                         continue
 
     def lookup(self, reading: str) -> list[tuple[str, int]]:
-        return self.map.get(reading, [])
+        return [(surface, cost) for surface, cost, _pos in self.map.get(reading, [])]
 
-    def prefix_search(self, reading: str) -> list[tuple[int, str, int]]:
+    def prefix_search(self, reading: str) -> list[tuple[int, str, int, str]]:
+        """Returns (word_len, surface, cost, pos_str) for each matching prefix."""
         chars = list(reading)
         results = []
         for length in range(1, len(chars) + 1):
             prefix = "".join(chars[:length])
-            for surface, cost in self.map.get(prefix, []):
-                results.append((length, surface, cost))
+            for surface, cost, pos in self.map.get(prefix, []):
+                results.append((length, surface, cost, pos))
         return results
 
 
@@ -168,8 +218,9 @@ def _viterbi_by_cost(
     index: MozcReadingIndex,
     beam_width: int = 16,
     top_k: int = 20,
+    pos_penalty_alpha: float = 1.0,
 ) -> list[tuple[int, str]]:
-    """Viterbi beam search using mozc cost only (no LM calls).
+    """Viterbi beam search using mozc cost + POS bigram connection penalty.
 
     Returns [(total_cost, joined_surface), ...] sorted ascending by cost.
     Used as fallback for multi-bunsetsu readings not in direct lookup.
@@ -179,8 +230,9 @@ def _viterbi_by_cost(
 
     chars = list(reading)
     total = len(chars)
-    beam: list[list[tuple[int, list[str]]]] = [[] for _ in range(total + 1)]
-    beam[0].append((0, []))
+    # Beam entries: (cumulative_cost, surfaces, last_pos_str)
+    beam: list[list[tuple[int, list[str], str]]] = [[] for _ in range(total + 1)]
+    beam[0].append((0, [], ""))  # empty last_pos = BOS
 
     for pos in range(total):
         if len(beam[pos]) > beam_width:
@@ -193,21 +245,25 @@ def _viterbi_by_cost(
         matches = index.prefix_search(remaining)
 
         if not matches:
-            for cost, surfaces in beam[pos]:
-                beam[pos + 1].append((cost + 10000, surfaces + [chars[pos]]))
+            for cost, surfaces, last_pos in beam[pos]:
+                beam[pos + 1].append((cost + 10000, surfaces + [chars[pos]], ""))
         else:
-            for cost, surfaces in beam[pos]:
-                for word_len, surface, entry_cost in matches:
+            for cost, surfaces, last_pos in beam[pos]:
+                for word_len, surface, entry_cost, entry_pos in matches:
                     next_pos = pos + word_len
                     if next_pos > total:
                         continue
-                    # Add penalty for single-char zero-cost entries (hiragana fallbacks).
-                    # Without this, single-char paths (each cost=0) always win over
-                    # multi-char words which have non-zero costs in mozc.
+                    # Penalise single-char zero-cost entries (hiragana fallbacks).
                     effective_cost = entry_cost
-                    if word_len == 1 and entry_cost == 0:
-                        effective_cost = 3000
-                    beam[next_pos].append((cost + effective_cost, surfaces + [surface]))
+                    if word_len == 1:
+                        effective_cost = max(entry_cost, 3000)
+                    # POS bigram connection penalty
+                    pos_pen = int(pos_penalty_alpha * _pos_connection_penalty(last_pos, entry_pos))
+                    beam[next_pos].append((
+                        cost + effective_cost + pos_pen,
+                        surfaces + [surface],
+                        entry_pos,
+                    ))
 
     final = beam[total]
     final.sort(key=lambda x: x[0])
@@ -215,7 +271,7 @@ def _viterbi_by_cost(
 
     seen: set[str] = set()
     result = []
-    for cost, surfaces in final:
+    for cost, surfaces, _pos in final:
         joined = "".join(surfaces)
         if joined not in seen:
             seen.add(joined)

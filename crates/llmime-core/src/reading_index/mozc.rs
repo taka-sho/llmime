@@ -57,14 +57,26 @@ impl MozcReadingIndex {
     }
 }
 
+/// Map mozc IPAdic-based left_id to a POS string.
+///
+/// Ranges derived from vendor/mozc_oss dictionary analysis:
+///   助動詞 (copula): です=172, で=178
+///   終助詞 (sentence-final): ね=215, 423
+///   動詞 explicit: くる=591, する=633, 活用形 837-870
+///   形容詞 explicit: いい=726/830, 2418/2459/2467-2476
+///   助詞 broad range: は=283, が=332, を=379, に=327/372, で=168/349, の=374/424 etc.
+///   名詞 high IDs: 1280+
 fn lid_to_pos(lid: i32) -> String {
-    // Simplified POS mapping from lid ranges (mozc IPAdic-based)
     match lid {
-        1285..=1572 => "名詞".to_string(),
-        31..=68 => "動詞".to_string(),
-        69..=115 => "形容詞".to_string(),
-        _ => "名詞".to_string(),
+        172..=180 => "助動詞",                      // copula/auxiliary (です, で)
+        215 | 423 => "終助詞",                       // sentence-final (ね, よ)
+        591 | 633 | 837..=870 => "動詞",             // known verb IDs
+        726 | 830 | 2418 | 2459 | 2467..=2476 => "形容詞", // adjective IDs
+        168..=720 => "助詞",                         // broad particle range
+        1280..=2671 => "名詞",                       // noun range
+        _ => "名詞",
     }
+    .to_string()
 }
 
 impl ReadingIndex for MozcReadingIndex {
@@ -72,8 +84,18 @@ impl ReadingIndex for MozcReadingIndex {
         self.map.get(reading).cloned().unwrap_or_default()
     }
 
-    fn prefix_search(&self, _reading: &str) -> Vec<(usize, ReadingEntry)> {
-        vec![]
+    fn prefix_search(&self, reading: &str) -> Vec<(usize, ReadingEntry)> {
+        let chars: Vec<char> = reading.chars().collect();
+        let mut results = Vec::new();
+        for len in 1..=chars.len() {
+            let prefix: String = chars[..len].iter().collect();
+            if let Some(entries) = self.map.get(&prefix) {
+                for entry in entries {
+                    results.push((len, entry.clone()));
+                }
+            }
+        }
+        results
     }
 }
 
@@ -121,9 +143,21 @@ mod tests {
     }
 
     #[test]
-    fn prefix_search_returns_empty_in_phase1() {
+    fn prefix_search_returns_all_prefix_matches() {
         let idx = MozcReadingIndex::from_tsv_str(DUMMY_TSV).unwrap();
         let results = idx.prefix_search("あい");
+        // "あ" and "あい" both have entries in DUMMY_TSV
+        assert!(!results.is_empty());
+        let len1: Vec<_> = results.iter().filter(|(l, _)| *l == 1).collect();
+        let len2: Vec<_> = results.iter().filter(|(l, _)| *l == 2).collect();
+        assert!(!len1.is_empty(), "should find prefix 'あ'");
+        assert!(!len2.is_empty(), "should find prefix 'あい'");
+    }
+
+    #[test]
+    fn prefix_search_returns_empty_for_no_match() {
+        let idx = MozcReadingIndex::from_tsv_str(DUMMY_TSV).unwrap();
+        let results = idx.prefix_search("zzz");
         assert!(results.is_empty());
     }
 
