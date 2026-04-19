@@ -3,7 +3,7 @@ pub struct TokenCounter;
 impl TokenCounter {
     /// Estimates morpheme count from character count (approximation for v1).
     pub fn count(text: &str) -> usize {
-        (text.chars().count() + 2) / 3
+        text.chars().count().div_ceil(3)
     }
 }
 
