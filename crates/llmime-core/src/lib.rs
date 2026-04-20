@@ -8,6 +8,7 @@ pub mod morphology;
 pub mod paths;
 pub mod pipeline;
 pub mod reading_index;
+pub mod rerank;
 pub mod scoring;
 pub mod user_dict;
 pub mod ux;
@@ -26,6 +27,9 @@ pub use paths::LlmimePaths;
 pub use pipeline::AsyncPipeline;
 pub use reading_index::{
     LmScorer, MozcReadingIndex, ReadingEntry, ReadingIndex, ViterbiConfig, ViterbiLattice,
+};
+pub use rerank::{
+    BoundaryEvent, RerankConfig, RerankQueue, RerankRequest, StreamingBoundaryDetector, Token,
 };
 pub use scoring::{Candidate, CandidateScore, NgramScorer, Scorer};
 pub use user_dict::UserDict;
