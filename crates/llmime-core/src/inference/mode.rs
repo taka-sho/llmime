@@ -83,6 +83,22 @@ impl ModeManager {
             .unwrap_or_else(|| self.effective_mode(focus, base))
     }
 
+    /// Hybrid mode resolution with override support AND unconditional Sensitive/Unknown protection.
+    /// NF-032: Sensitive and Unknown fields always resolve to Privacy — no override can change this.
+    pub fn effective_mode_with_override_secure(
+        &self,
+        focus: FieldClass,
+        base: InputMode,
+        override_mgr: &OverrideManager,
+    ) -> InputMode {
+        if matches!(focus, FieldClass::Sensitive | FieldClass::Unknown) {
+            return InputMode::Privacy;
+        }
+        override_mgr
+            .effective_override()
+            .unwrap_or_else(|| self.effective_mode(focus, base))
+    }
+
     /// `input_mode = "privacy"` 形式の設定ファイルから初期モードを読み込む。
     /// キーが見つからない場合はデフォルト (Privacy) を使用。
     pub fn from_config_file(path: &Path) -> Self {
