@@ -53,6 +53,9 @@ impl Dispatcher {
                 .as_ref()
                 .map(|l| Arc::clone(l) as DynInferencer)
                 .unwrap_or_else(|| Arc::clone(&self.ngram) as DynInferencer),
+            // Hybrid must be resolved via ModeManager::effective_mode() before calling this.
+            // Unresolved Hybrid falls back to ngram (Privacy-safe, NF-032).
+            InputMode::Hybrid => Arc::clone(&self.ngram) as DynInferencer,
         }
     }
 }

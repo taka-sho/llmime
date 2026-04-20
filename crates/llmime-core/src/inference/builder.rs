@@ -25,6 +25,9 @@ pub fn default_fallback_chain(mode: InputMode, cfg: &LlmimeConfig) -> FallbackCh
                 Arc::new(LocalLlmInferencer::new(cfg.local_llm.model_path.clone()));
             FallbackChain::new(local_llm, vec![ngram], Duration::from_millis(800))
         }
+        // Hybrid: callers must resolve via ModeManager::effective_mode() first.
+        // Unresolved Hybrid uses Privacy-safe ngram-only chain (NF-032).
+        InputMode::Hybrid => FallbackChain::new(ngram, vec![], Duration::MAX),
     }
 }
 
