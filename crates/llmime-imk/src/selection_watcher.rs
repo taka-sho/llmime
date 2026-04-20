@@ -1,6 +1,6 @@
 //! macOS IMKit 選択検知 — SelectionWatcher
 //!
-//! F-120: IMKCandidates の selectedRange 変化を監視し、drag end + 100ms で
+//! F-120/F-121: IMKCandidates の selectedRange 変化を監視し、drag end + 200ms で
 //! 選択確定イベントを発火する。composition (preedit) 中は抑制。
 //! Accessibility API (AXSelectedTextRange) は KVO 失敗時の fallback として使用。
 
@@ -48,7 +48,7 @@ pub struct SelectionWatcher {
 
 impl SelectionWatcher {
     /// Debounce duration: drag end → confirmed event.
-    pub const CONFIRM_DELAY: Duration = Duration::from_millis(100);
+    pub const CONFIRM_DELAY: Duration = Duration::from_millis(200);
 
     pub fn new() -> Self {
         Self {
@@ -119,6 +119,20 @@ impl SelectionWatcher {
             None
         }
     }
+
+    /// Entry point for Cmd/Ctrl+Shift+R style forced re-evaluation.
+    pub fn force_reevaluate(&mut self, range: NSRange, text: &str) -> Option<SelectionEvent> {
+        if range.is_empty() || text.is_empty() {
+            return None;
+        }
+        self.last_selection = Some(range);
+        self.pending = None;
+        Some(SelectionEvent {
+            selected_text: text.to_string(),
+            range,
+            timestamp: Instant::now(),
+        })
+    }
 }
 
 impl Default for SelectionWatcher {
@@ -161,17 +175,17 @@ mod tests {
             .is_none());
     }
 
-    /// Drag end + 100ms fires the event (timeout test).
+    /// Drag end + 200ms fires the event (timeout test).
     #[test]
-    fn drag_end_plus_100ms_fires() {
+    fn drag_end_plus_200ms_fires() {
         let mut watcher = SelectionWatcher::new();
         watcher.on_selection_change(range(0, 5), "hello");
 
-        // 99ms — not yet.
-        let t99 = Instant::now() + Duration::from_millis(99);
-        assert!(watcher.poll_confirmed_at(t99).is_none());
+        // 199ms — not yet.
+        let t199 = Instant::now() + Duration::from_millis(199);
+        assert!(watcher.poll_confirmed_at(t199).is_none());
 
-        // Exactly 100ms — fires.
+        // Exactly 200ms — fires.
         let t100 = Instant::now() + SelectionWatcher::CONFIRM_DELAY;
         assert!(watcher.poll_confirmed_at(t100).is_some());
     }
@@ -233,5 +247,16 @@ mod tests {
         assert!(watcher
             .poll_confirmed_at(t + Duration::from_millis(200))
             .is_none());
+    }
+
+    #[test]
+    fn force_reevaluate_returns_immediate_event() {
+        let mut watcher = SelectionWatcher::new();
+        let r = range(6, 2);
+        let event = watcher
+            .force_reevaluate(r, "再評価")
+            .expect("forced re-eval must return an event");
+        assert_eq!(event.range, r);
+        assert_eq!(event.selected_text, "再評価");
     }
 }
