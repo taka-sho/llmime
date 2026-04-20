@@ -13,6 +13,7 @@ use crate::inference::{
     latency_tracker::LatencyTracker,
     retry::{with_retry, RetryConfig, RetryDecision},
 };
+use crate::rerank::{should_apply_update, DEFAULT_MIN_CONFIDENCE_DELTA};
 
 pub struct WorkersAIInferencer {
     account_id: String,
@@ -114,8 +115,13 @@ struct WorkersAIResult {
 #[derive(Deserialize)]
 struct RerankJsonOutput {
     best_index: usize,
-    #[allow(dead_code)]
     confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ParsedRerankOutput {
+    best_idx: usize,
+    confidence: Option<f32>,
 }
 
 fn build_system_prompt(left_context: Option<&str>, right_context: Option<&str>) -> String {
@@ -153,7 +159,7 @@ fn build_user_prompt(reading: &str, candidates: &[CandidateWithScore]) -> String
     format!("読み: {}\n候補: [{}]", reading, candidate_list.join(", "))
 }
 
-fn parse_best_index(response: &str, len: usize) -> Option<usize> {
+fn parse_rerank_output(response: &str, len: usize) -> Option<ParsedRerankOutput> {
     let trimmed = response.trim();
     if let Some(start) = trimmed.find('{') {
         if let Some(end) = trimmed.rfind('}') {
@@ -161,7 +167,10 @@ fn parse_best_index(response: &str, len: usize) -> Option<usize> {
             if let Ok(parsed) = serde_json::from_str::<RerankJsonOutput>(json_str) {
                 let n = parsed.best_index;
                 if n >= 1 && n <= len {
-                    return Some(n - 1);
+                    return Some(ParsedRerankOutput {
+                        best_idx: n - 1,
+                        confidence: parsed.confidence.map(|v| v as f32),
+                    });
                 }
             }
         }
@@ -169,18 +178,67 @@ fn parse_best_index(response: &str, len: usize) -> Option<usize> {
 
     if let Ok(n) = trimmed.parse::<usize>() {
         if n >= 1 && n <= len {
-            return Some(n - 1);
+            return Some(ParsedRerankOutput {
+                best_idx: n - 1,
+                confidence: None,
+            });
         }
     }
     for ch in trimmed.chars() {
         if let Some(d) = ch.to_digit(10) {
             let idx = d as usize;
             if idx >= 1 && idx <= len {
-                return Some(idx - 1);
+                return Some(ParsedRerankOutput {
+                    best_idx: idx - 1,
+                    confidence: None,
+                });
             }
         }
     }
     None
+}
+
+fn apply_rerank_result(
+    candidates: &mut [CandidateWithScore],
+    parsed: ParsedRerankOutput,
+    enforce_update_gate: bool,
+) {
+    if candidates.is_empty() {
+        return;
+    }
+
+    if enforce_update_gate {
+        let Some(proposed_confidence) = parsed.confidence else {
+            return;
+        };
+
+        let current_surface = candidates[0].surface.clone();
+        let current_confidence = candidates[0].score;
+        let proposed_surface = candidates[parsed.best_idx].surface.clone();
+        let should_apply = should_apply_update(
+            &current_surface,
+            current_confidence,
+            &proposed_surface,
+            proposed_confidence,
+            DEFAULT_MIN_CONFIDENCE_DELTA,
+        );
+        if !should_apply {
+            return;
+        }
+
+        for c in candidates.iter_mut() {
+            c.source = CandidateSource::WorkersAI;
+        }
+        candidates[parsed.best_idx].score = proposed_confidence;
+        candidates.swap(0, parsed.best_idx);
+        return;
+    }
+
+    for (i, c) in candidates.iter_mut().enumerate() {
+        c.source = CandidateSource::WorkersAI;
+        c.score = if i == parsed.best_idx { 10.0 } else { 1.0 };
+    }
+    candidates.swap(0, parsed.best_idx);
 }
 
 fn classify_reqwest_error(e: reqwest::Error) -> RetryDecision<InferenceError> {
@@ -324,12 +382,9 @@ impl Inferencer for WorkersAIInferencer {
         }
 
         let len = candidates.len();
-        if let Some(best_idx) = parse_best_index(&api_resp.result.response, len) {
-            for (i, c) in candidates.iter_mut().enumerate() {
-                c.source = CandidateSource::WorkersAI;
-                c.score = if i == best_idx { 10.0 } else { 1.0 };
-            }
-            candidates.swap(0, best_idx);
+        if let Some(parsed) = parse_rerank_output(&api_resp.result.response, len) {
+            let enforce_update_gate = matches!(right_context, Some(ctx) if !ctx.is_empty());
+            apply_rerank_result(&mut candidates, parsed, enforce_update_gate);
         }
 
         Ok(candidates)
@@ -426,12 +481,9 @@ mod tests {
             .await?;
 
             let len = candidates.len();
-            if let Some(best_idx) = parse_best_index(&api_resp.result.response, len) {
-                for (i, c) in candidates.iter_mut().enumerate() {
-                    c.source = CandidateSource::WorkersAI;
-                    c.score = if i == best_idx { 10.0 } else { 1.0 };
-                }
-                candidates.swap(0, best_idx);
+            if let Some(parsed) = parse_rerank_output(&api_resp.result.response, len) {
+                let enforce_update_gate = matches!(right_context, Some(ctx) if !ctx.is_empty());
+                apply_rerank_result(&mut candidates, parsed, enforce_update_gate);
             }
 
             Ok(candidates)
@@ -643,36 +695,69 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_best_index_json() {
+    fn test_parse_rerank_output_json() {
         assert_eq!(
-            parse_best_index(r#"{"best_index": 1, "confidence": 0.9}"#, 3),
-            Some(0)
+            parse_rerank_output(r#"{"best_index": 1, "confidence": 0.9}"#, 3),
+            Some(ParsedRerankOutput {
+                best_idx: 0,
+                confidence: Some(0.9),
+            })
         );
         assert_eq!(
-            parse_best_index(r#"{"best_index": 2, "confidence": 0.8}"#, 3),
-            Some(1)
+            parse_rerank_output(r#"{"best_index": 2, "confidence": 0.8}"#, 3),
+            Some(ParsedRerankOutput {
+                best_idx: 1,
+                confidence: Some(0.8),
+            })
         );
         assert_eq!(
-            parse_best_index(r#"{"best_index": 4, "confidence": 0.5}"#, 3),
+            parse_rerank_output(r#"{"best_index": 4, "confidence": 0.5}"#, 3),
             None
         );
     }
 
     #[test]
-    fn test_parse_best_index_fallback() {
-        assert_eq!(parse_best_index("1", 3), Some(0));
-        assert_eq!(parse_best_index("2", 3), Some(1));
-        assert_eq!(parse_best_index("3", 3), Some(2));
-        assert_eq!(parse_best_index("4", 3), None);
-        assert_eq!(parse_best_index("0", 3), None);
-        assert_eq!(parse_best_index("答えは2です", 3), Some(1));
+    fn test_parse_rerank_output_fallback() {
+        assert_eq!(
+            parse_rerank_output("1", 3),
+            Some(ParsedRerankOutput {
+                best_idx: 0,
+                confidence: None,
+            })
+        );
+        assert_eq!(
+            parse_rerank_output("2", 3),
+            Some(ParsedRerankOutput {
+                best_idx: 1,
+                confidence: None,
+            })
+        );
+        assert_eq!(
+            parse_rerank_output("3", 3),
+            Some(ParsedRerankOutput {
+                best_idx: 2,
+                confidence: None,
+            })
+        );
+        assert_eq!(parse_rerank_output("4", 3), None);
+        assert_eq!(parse_rerank_output("0", 3), None);
+        assert_eq!(
+            parse_rerank_output("答えは2です", 3),
+            Some(ParsedRerankOutput {
+                best_idx: 1,
+                confidence: None,
+            })
+        );
     }
 
     #[test]
-    fn test_parse_best_index_json_embedded() {
+    fn test_parse_rerank_output_json_embedded() {
         assert_eq!(
-            parse_best_index(r#"回答: {"best_index": 3, "confidence": 0.7}"#, 3),
-            Some(2)
+            parse_rerank_output(r#"回答: {"best_index": 3, "confidence": 0.7}"#, 3),
+            Some(ParsedRerankOutput {
+                best_idx: 2,
+                confidence: Some(0.7),
+            })
         );
     }
 
