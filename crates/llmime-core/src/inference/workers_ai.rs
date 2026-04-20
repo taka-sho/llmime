@@ -118,12 +118,18 @@ struct RerankJsonOutput {
     confidence: Option<f64>,
 }
 
-fn build_system_prompt(left_context: Option<&str>) -> String {
-    let context_line = match left_context {
+fn build_system_prompt(left_context: Option<&str>, right_context: Option<&str>) -> String {
+    let context_line = match right_context {
         Some(ctx) if !ctx.is_empty() => {
-            format!("直前の文脈: {}\n\n", ctx)
+            let left = left_context.unwrap_or_default();
+            format!("入力中の文字列: {} [ここまで入力] {}\n\n", left, ctx)
         }
-        _ => String::new(),
+        _ => match left_context {
+            Some(ctx) if !ctx.is_empty() => {
+                format!("直前の文脈: {}\n\n", ctx)
+            }
+            _ => String::new(),
+        },
     };
     format!(
         "あなたは日本語IMEのリランキングエンジンです。\n\
@@ -224,7 +230,7 @@ impl Inferencer for WorkersAIInferencer {
     fn capabilities(&self) -> InferencerCapabilities {
         InferencerCapabilities {
             supports_rerank: true,
-            supports_right_context: false,
+            supports_right_context: true,
         }
     }
 
@@ -255,8 +261,19 @@ impl Inferencer for WorkersAIInferencer {
     async fn rerank(
         &self,
         reading: &str,
+        candidates: Vec<CandidateWithScore>,
+        left_context: Option<&str>,
+    ) -> Result<Vec<CandidateWithScore>, InferenceError> {
+        self.rerank_with_right_context(reading, candidates, left_context, None)
+            .await
+    }
+
+    async fn rerank_with_right_context(
+        &self,
+        reading: &str,
         mut candidates: Vec<CandidateWithScore>,
         left_context: Option<&str>,
+        right_context: Option<&str>,
     ) -> Result<Vec<CandidateWithScore>, InferenceError> {
         if let Some(cm) = &self.consent_manager {
             if !cm.is_consented() {
@@ -272,7 +289,7 @@ impl Inferencer for WorkersAIInferencer {
             return Ok(candidates);
         }
 
-        let system_prompt = build_system_prompt(left_context);
+        let system_prompt = build_system_prompt(left_context, right_context);
         let user_prompt = build_user_prompt(reading, &candidates);
         let url = format!(
             "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
@@ -361,14 +378,25 @@ mod tests {
         async fn rerank(
             &self,
             reading: &str,
+            candidates: Vec<CandidateWithScore>,
+            left_context: Option<&str>,
+        ) -> Result<Vec<CandidateWithScore>, InferenceError> {
+            self.rerank_with_right_context(reading, candidates, left_context, None)
+                .await
+        }
+
+        async fn rerank_with_right_context(
+            &self,
+            reading: &str,
             mut candidates: Vec<CandidateWithScore>,
             left_context: Option<&str>,
+            right_context: Option<&str>,
         ) -> Result<Vec<CandidateWithScore>, InferenceError> {
             if candidates.is_empty() {
                 return Ok(candidates);
             }
 
-            let system_prompt = build_system_prompt(left_context);
+            let system_prompt = build_system_prompt(left_context, right_context);
             let user_prompt = build_user_prompt(reading, &candidates);
             let url = format!(
                 "{}/client/v4/accounts/{}/ai/run/{}",
@@ -472,6 +500,60 @@ mod tests {
             .unwrap();
 
         assert_eq!(result[0].surface, "天気");
+    }
+
+    #[tokio::test]
+    async fn test_rerank_with_right_context_embeds_prompt() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(".*/ai/run/.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": { "response": "{\"best_index\": 1, \"confidence\": 0.95}" },
+                "success": true
+            })))
+            .mount(&server)
+            .await;
+
+        let inferencer = TestWorkersAIInferencer::new(server.uri());
+        let candidates = make_candidates();
+        let _ = inferencer
+            .rerank_with_right_context("てんき", candidates, Some("明日の"), Some("天気"))
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("入力中の文字列: 明日の [ここまで入力] 天気"));
+    }
+
+    #[tokio::test]
+    async fn test_rerank_with_empty_right_context_falls_back_to_rerank() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(".*/ai/run/.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": { "response": "{\"best_index\": 1, \"confidence\": 0.95}" },
+                "success": true
+            })))
+            .mount(&server)
+            .await;
+
+        let inferencer = TestWorkersAIInferencer::new(server.uri());
+        let base = inferencer
+            .rerank("てんき", make_candidates(), Some("明日の"))
+            .await
+            .unwrap();
+        let with_empty_right = inferencer
+            .rerank_with_right_context("てんき", make_candidates(), Some("明日の"), Some(""))
+            .await
+            .unwrap();
+
+        assert_eq!(with_empty_right[0].surface, base[0].surface);
+        assert_eq!(with_empty_right[0].score, base[0].score);
+        assert!(matches!(
+            with_empty_right[0].source,
+            CandidateSource::WorkersAI
+        ));
     }
 
     #[tokio::test]
@@ -596,7 +678,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_no_context() {
-        let prompt = build_system_prompt(None);
+        let prompt = build_system_prompt(None, None);
         assert!(prompt.contains("IMEのリランキング"));
         assert!(prompt.contains("best_index"));
         assert!(!prompt.contains("直前の文脈"));
@@ -604,8 +686,14 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_context() {
-        let prompt = build_system_prompt(Some("明日の"));
+        let prompt = build_system_prompt(Some("明日の"), None);
         assert!(prompt.contains("直前の文脈: 明日の"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_right_context() {
+        let prompt = build_system_prompt(Some("明日の"), Some("天気"));
+        assert!(prompt.contains("入力中の文字列: 明日の [ここまで入力] 天気"));
     }
 
     #[test]
@@ -626,7 +714,7 @@ mod tests {
         );
         let caps = inf.capabilities();
         assert!(caps.supports_rerank);
-        assert!(!caps.supports_right_context);
+        assert!(caps.supports_right_context);
         assert_eq!(inf.name(), "workers-ai");
     }
 
