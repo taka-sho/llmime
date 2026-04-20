@@ -29,8 +29,10 @@ pub use reading_index::{
     LmScorer, MozcReadingIndex, ReadingEntry, ReadingIndex, ViterbiConfig, ViterbiLattice,
 };
 pub use rerank::{
-    BoundaryEvent, ModifierState, RerankConfig, RerankQueue, RerankRequest, SelectionRerankRequest,
-    SelectionRerankTrigger, SelectionReranker, StreamingBoundaryDetector, Token,
+    AnimationCommand, AnimationPlan, AnimationScheduler, BoundaryEvent, ModifierState,
+    RerankConfig, RerankQueue, RerankRequest, SelectionRerankRequest, SelectionRerankTrigger,
+    SelectionReranker, StreamingBoundaryDetector, Token, UpdateUxFeedback,
+    DEFAULT_HIGHLIGHT_CONFIDENCE_DELTA,
 };
 pub use scoring::{Candidate, CandidateScore, NgramScorer, Scorer};
 pub use user_dict::UserDict;
