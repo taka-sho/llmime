@@ -11,6 +11,11 @@ pub use field_detector::{FieldClass, FieldDetector};
 
 pub mod selection_sink;
 pub use selection_sink::{SelectionEvent, SelectionSink, ShortcutModifiers};
+pub mod text_replace;
+pub use text_replace::{
+    replace_selected_text_via_tsf, ReplaceError, ReplaceOutcome as TsfReplaceOutcome,
+    TsfEditSession, TsfRangeWriter,
+};
 
 pub mod mode_indicator;
 pub use mode_indicator::ModeIndicator;
