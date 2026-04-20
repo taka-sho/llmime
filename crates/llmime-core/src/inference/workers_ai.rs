@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use crate::consent::ConsentManager;
 use crate::inference::{
     capabilities::InferencerCapabilities,
+    cost_guard::CostGuard,
     cost_monitor::CostMonitor,
     error::InferenceError,
     inferencer::{CandidateSource, CandidateWithScore, Inferencer},
@@ -23,6 +24,7 @@ pub struct WorkersAIInferencer {
     consent_manager: Option<ConsentManager>,
     latency_tracker: Arc<LatencyTracker>,
     cost_monitor: Option<Arc<CostMonitor>>,
+    cost_guard: Option<Arc<CostGuard>>,
 }
 
 impl WorkersAIInferencer {
@@ -42,6 +44,7 @@ impl WorkersAIInferencer {
             consent_manager: None,
             latency_tracker: LatencyTracker::new(100),
             cost_monitor: None,
+            cost_guard: None,
         }
     }
 
@@ -54,6 +57,11 @@ impl WorkersAIInferencer {
         let mut s = Self::new(account_id, api_token, model_id);
         s.cost_monitor = Some(monitor);
         s
+    }
+
+    pub fn with_cost_guard(mut self, guard: Arc<CostGuard>) -> Self {
+        self.cost_guard = Some(guard);
+        self
     }
 
     pub fn latency_tracker(&self) -> Arc<LatencyTracker> {
@@ -254,6 +262,10 @@ impl Inferencer for WorkersAIInferencer {
             if !cm.is_consented() {
                 return Err(InferenceError::ConsentRequired);
             }
+        }
+
+        if let Some(cg) = &self.cost_guard {
+            cg.check()?;
         }
 
         if candidates.is_empty() {
