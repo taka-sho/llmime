@@ -9,6 +9,13 @@ pub struct SelectionEvent {
     pub timestamp: Instant,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShortcutModifiers {
+    pub command_or_ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
 struct PendingSelection {
     start: i32,
     end: i32,
@@ -117,12 +124,30 @@ impl SelectionSink {
             timestamp: Instant::now(),
         })
     }
+
+    /// Handles Cmd/Ctrl+Shift+R and bypasses the 200ms debounce window.
+    pub fn on_shortcut_reevaluate(
+        &mut self,
+        acp_start: i32,
+        acp_end: i32,
+        text: &str,
+        modifiers: ShortcutModifiers,
+    ) -> Option<SelectionEvent> {
+        if !is_rerank_shortcut(modifiers) {
+            return None;
+        }
+        self.force_reevaluate(acp_start, acp_end, text)
+    }
 }
 
 impl Default for SelectionSink {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn is_rerank_shortcut(modifiers: ShortcutModifiers) -> bool {
+    modifiers.command_or_ctrl && modifiers.shift && !modifiers.alt
 }
 
 #[cfg(test)]
@@ -196,5 +221,56 @@ mod tests {
         assert_eq!(event.start, 2);
         assert_eq!(event.end, 5);
         assert_eq!(event.selected_text, "再評価");
+    }
+
+    #[test]
+    fn shortcut_reevaluate_bypasses_debounce() {
+        let mut sink = SelectionSink::new();
+        let event = sink.on_shortcut_reevaluate(
+            3,
+            6,
+            "候補",
+            ShortcutModifiers {
+                command_or_ctrl: true,
+                shift: true,
+                alt: false,
+            },
+        );
+        assert!(event.is_some(), "shortcut should emit immediately");
+    }
+
+    #[test]
+    fn shortcut_reevaluate_is_blocked_without_shift() {
+        let mut sink = SelectionSink::new();
+        let event = sink.on_shortcut_reevaluate(
+            3,
+            6,
+            "候補",
+            ShortcutModifiers {
+                command_or_ctrl: true,
+                shift: false,
+                alt: false,
+            },
+        );
+        assert!(event.is_none(), "missing shift should suppress shortcut");
+    }
+
+    #[test]
+    fn shortcut_reevaluate_is_blocked_with_alt_to_avoid_conflict() {
+        let mut sink = SelectionSink::new();
+        let event = sink.on_shortcut_reevaluate(
+            3,
+            6,
+            "候補",
+            ShortcutModifiers {
+                command_or_ctrl: true,
+                shift: true,
+                alt: true,
+            },
+        );
+        assert!(
+            event.is_none(),
+            "alt chord should be reserved for host shortcuts"
+        );
     }
 }
