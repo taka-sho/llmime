@@ -2,15 +2,8 @@
 //!
 //! Detects whether the focused UI element is a password (secure) field
 //! by querying AXRole via the Accessibility API.
-//!
-//! NOTE: FieldClass is a temporary definition here; P5-T3 will move it to llmime-core.
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum FieldClass {
-    Sensitive,
-    NonSensitive,
-    Unknown,
-}
+pub use llmime_core::field::FieldClass;
 
 pub struct FieldDetector;
 

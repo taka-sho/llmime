@@ -4,6 +4,9 @@
 pub mod tsf_adapter;
 pub use tsf_adapter::TsfLiveAdapter;
 
+pub mod field_detector;
+pub use field_detector::{FieldClass, FieldDetector};
+
 #[cfg(target_os = "windows")]
 mod state;
 
