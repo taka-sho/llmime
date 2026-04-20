@@ -1,3 +1,9 @@
+#[derive(Debug)]
+pub enum CostCapKind {
+    Daily,
+    Hourly,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum InferenceError {
     #[error("timeout after {0:?}")]
@@ -12,4 +18,6 @@ pub enum InferenceError {
     ConsentRequired,
     #[error("inference cancelled")]
     Cancelled,
+    #[error("cost cap exceeded: {0:?}")]
+    CostCapExceeded(CostCapKind),
 }

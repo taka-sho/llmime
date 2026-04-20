@@ -15,9 +15,9 @@ pub use config::{ConfigError, LlmimeConfig, LocalLlmConfig, WorkersAIConfig};
 pub use consent::ConsentManager;
 pub use history::{HistoryStore, SqliteHistoryStore};
 pub use inference::{
-    default_fallback_chain, Dispatcher, DynInferencer, FallbackChain, InferenceError, Inferencer,
-    InputMode, LocalLlmInferencer, LocalNgramInferencer, ModeManager, WarmupOrchestrator,
-    WarmupStatus, WorkersAIInferencer,
+    default_fallback_chain, CostCapKind, CostGuard, Dispatcher, DynInferencer, FallbackChain,
+    InferenceError, Inferencer, InputMode, LocalLlmInferencer, LocalNgramInferencer, ModeManager,
+    WarmupOrchestrator, WarmupStatus, WorkersAIInferencer,
 };
 pub use lm::{KenLMModel, LanguageModel};
 pub use morphology::{Morpheme, Tokenizer, VibratoTokenizer};
