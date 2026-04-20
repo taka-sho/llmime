@@ -7,6 +7,8 @@ pub struct CompositionState {
     pub preedit: Vec<u16>,
     /// ACP cursor position (end of preedit = preedit.len() as i32).
     pub cursor: i32,
+    /// Latch set by key_sink when Ctrl/Cmd+Shift+R is detected.
+    pub force_rerank_requested: bool,
 }
 
 impl CompositionState {
@@ -36,10 +38,32 @@ impl CompositionState {
         self.preedit.clear();
         self.cursor = 0;
     }
+
+    pub fn request_force_rerank(&mut self) {
+        self.force_rerank_requested = true;
+    }
+
+    pub fn take_force_rerank_request(&mut self) -> bool {
+        std::mem::take(&mut self.force_rerank_requested)
+    }
 }
 
 pub type SharedState = Arc<Mutex<CompositionState>>;
 
 pub fn new_shared_state() -> SharedState {
     Arc::new(Mutex::new(CompositionState::default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CompositionState;
+
+    #[test]
+    fn force_rerank_request_is_latched_until_taken() {
+        let mut state = CompositionState::default();
+        assert!(!state.take_force_rerank_request());
+        state.request_force_rerank();
+        assert!(state.take_force_rerank_request());
+        assert!(!state.take_force_rerank_request());
+    }
 }
