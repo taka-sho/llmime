@@ -1,5 +1,6 @@
 pub mod config;
 pub mod consent;
+pub mod field;
 pub mod history;
 pub mod inference;
 pub mod lm;
