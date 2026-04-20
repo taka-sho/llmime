@@ -9,18 +9,26 @@ use llmime_core::InputMode;
 
 pub struct ModeIndicator {
     current_mode: InputMode,
+    override_active: bool,
 }
 
 impl ModeIndicator {
     pub fn new() -> Self {
         Self {
             current_mode: InputMode::Privacy,
+            override_active: false,
         }
     }
 
     /// Update the displayed mode. Must complete within 100ms (F-064).
     pub fn update(&mut self, effective_mode: InputMode) {
+        self.update_with_override(effective_mode, false);
+    }
+
+    /// Update with override state. When `is_override` is true, "(上書き中)" suffix is shown.
+    pub fn update_with_override(&mut self, effective_mode: InputMode, is_override: bool) {
         self.current_mode = effective_mode;
+        self.override_active = is_override;
         self.render();
     }
 
@@ -28,14 +36,27 @@ impl ModeIndicator {
         self.current_mode
     }
 
+    pub fn is_override_active(&self) -> bool {
+        self.override_active
+    }
+
     /// Returns the icon string for the current mode.
     pub fn icon(&self) -> &'static str {
         mode_icon(self.current_mode)
     }
 
+    /// Returns the display label including override suffix if active.
+    pub fn display_label(&self) -> String {
+        if self.override_active {
+            format!("{} (上書き中)", self.icon())
+        } else {
+            self.icon().to_string()
+        }
+    }
+
     fn render(&self) {
         #[cfg(target_os = "macos")]
-        macos::update_status_item(self.icon());
+        macos::update_status_item(&self.display_label());
         // Non-macOS: no-op
     }
 }
@@ -189,5 +210,33 @@ mod tests {
             "update path took {}ms, expected <100ms (F-064)",
             elapsed.as_millis()
         );
+    }
+
+    // ── Override display tests ────────────────────────────────────────────
+
+    #[test]
+    fn override_active_shows_override_suffix() {
+        let mut indicator = ModeIndicator::new();
+        indicator.update_with_override(InputMode::Performance, true);
+        assert_eq!(indicator.is_override_active(), true);
+        assert!(indicator.display_label().contains("上書き中"));
+        assert_eq!(indicator.current_mode(), InputMode::Performance);
+    }
+
+    #[test]
+    fn no_override_shows_plain_icon() {
+        let mut indicator = ModeIndicator::new();
+        indicator.update_with_override(InputMode::Privacy, false);
+        assert_eq!(indicator.is_override_active(), false);
+        assert_eq!(indicator.display_label(), "🔒");
+    }
+
+    #[test]
+    fn update_without_override_clears_override_flag() {
+        let mut indicator = ModeIndicator::new();
+        indicator.update_with_override(InputMode::Performance, true);
+        assert!(indicator.is_override_active());
+        indicator.update(InputMode::Privacy);
+        assert!(!indicator.is_override_active());
     }
 }
