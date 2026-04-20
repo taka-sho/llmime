@@ -29,6 +29,16 @@ pub trait Inferencer: Send + Sync + 'static {
         left_context: Option<&str>,
     ) -> Result<Vec<CandidateWithScore>, InferenceError>;
 
+    async fn rerank_with_right_context(
+        &self,
+        reading: &str,
+        candidates: Vec<CandidateWithScore>,
+        left_context: Option<&str>,
+        _right_context: Option<&str>,
+    ) -> Result<Vec<CandidateWithScore>, InferenceError> {
+        self.rerank(reading, candidates, left_context).await
+    }
+
     async fn warmup(&self) -> Result<(), InferenceError> {
         Ok(())
     }
@@ -108,5 +118,21 @@ mod tests {
         let inf: DynInferencer = Arc::new(AlwaysTimeoutInferencer);
         let result = inf.rerank("てすと", vec![], None).await;
         assert!(matches!(result, Err(InferenceError::Timeout(_))));
+    }
+
+    #[tokio::test]
+    async fn test_dyn_inferencer_rerank_with_right_context_fallback() {
+        let inf: DynInferencer = Arc::new(AlwaysSucceedInferencer);
+        let candidates = vec![CandidateWithScore {
+            surface: "テスト".to_string(),
+            score: 1.0,
+            source: CandidateSource::Ngram,
+        }];
+        let result = inf
+            .rerank_with_right_context("てすと", candidates, Some("左"), Some("右"))
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].surface, "テスト");
     }
 }
