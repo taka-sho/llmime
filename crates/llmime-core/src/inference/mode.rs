@@ -1,12 +1,15 @@
 use std::path::Path;
 use std::str::FromStr;
 
+use crate::field::FieldClass;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
     Privacy,
     Performance,
     Pro,
+    Hybrid,
 }
 
 impl FromStr for InputMode {
@@ -17,6 +20,7 @@ impl FromStr for InputMode {
             "privacy" => Ok(InputMode::Privacy),
             "performance" => Ok(InputMode::Performance),
             "pro" => Ok(InputMode::Pro),
+            "hybrid" => Ok(InputMode::Hybrid),
             other => Err(format!("unknown input_mode: {}", other)),
         }
     }
@@ -49,6 +53,19 @@ impl ModeManager {
 
     pub fn override_for_sensitive(&mut self, sensitive: bool) {
         self.sensitive_override = sensitive;
+    }
+
+    /// Hybrid mode resolution: maps (base=Hybrid, focus) → concrete InputMode.
+    /// NF-032: Unknown → Privacy (WorkersAI never called).
+    pub fn effective_mode(&self, focus: FieldClass, base: InputMode) -> InputMode {
+        match base {
+            InputMode::Hybrid => match focus {
+                FieldClass::Sensitive => InputMode::Privacy,
+                FieldClass::NonSensitive => InputMode::Performance,
+                FieldClass::Unknown => InputMode::Privacy,
+            },
+            other => other,
+        }
     }
 
     /// `input_mode = "privacy"` 形式の設定ファイルから初期モードを読み込む。
@@ -148,6 +165,62 @@ mod tests {
         assert_eq!(
             parse_input_mode_from_config(content),
             Some(InputMode::Performance)
+        );
+    }
+
+    #[test]
+    fn hybrid_mode_from_str() {
+        assert_eq!("hybrid".parse::<InputMode>().unwrap(), InputMode::Hybrid);
+    }
+
+    // NF-032 / effective_mode tests (5 required cases)
+
+    #[test]
+    fn privacy_mode_always_local() {
+        let mgr = ModeManager::new(InputMode::Privacy);
+        assert_eq!(
+            mgr.effective_mode(FieldClass::Sensitive, InputMode::Privacy),
+            InputMode::Privacy
+        );
+        assert_eq!(
+            mgr.effective_mode(FieldClass::NonSensitive, InputMode::Privacy),
+            InputMode::Privacy
+        );
+    }
+
+    #[test]
+    fn performance_mode_workers() {
+        let mgr = ModeManager::new(InputMode::Performance);
+        assert_eq!(
+            mgr.effective_mode(FieldClass::NonSensitive, InputMode::Performance),
+            InputMode::Performance
+        );
+    }
+
+    #[test]
+    fn hybrid_sensitive_to_privacy() {
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        assert_eq!(
+            mgr.effective_mode(FieldClass::Sensitive, InputMode::Hybrid),
+            InputMode::Privacy
+        );
+    }
+
+    #[test]
+    fn hybrid_non_sensitive_to_performance() {
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        assert_eq!(
+            mgr.effective_mode(FieldClass::NonSensitive, InputMode::Hybrid),
+            InputMode::Performance
+        );
+    }
+
+    #[test]
+    fn hybrid_unknown_to_privacy() {
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        assert_eq!(
+            mgr.effective_mode(FieldClass::Unknown, InputMode::Hybrid),
+            InputMode::Privacy
         );
     }
 }
