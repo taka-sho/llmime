@@ -7,6 +7,9 @@ pub use tsf_adapter::TsfLiveAdapter;
 pub mod field_detector;
 pub use field_detector::{FieldClass, FieldDetector};
 
+pub mod selection_sink;
+pub use selection_sink::{SelectionEvent, SelectionSink};
+
 pub mod mode_indicator;
 pub use mode_indicator::ModeIndicator;
 
