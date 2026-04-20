@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use crate::consent::ConsentManager;
 use crate::inference::{
     capabilities::InferencerCapabilities,
+    cost_monitor::CostMonitor,
     error::InferenceError,
     inferencer::{CandidateSource, CandidateWithScore, Inferencer},
     latency_tracker::LatencyTracker,
@@ -21,6 +22,7 @@ pub struct WorkersAIInferencer {
     retry_config: RetryConfig,
     consent_manager: Option<ConsentManager>,
     latency_tracker: Arc<LatencyTracker>,
+    cost_monitor: Option<Arc<CostMonitor>>,
 }
 
 impl WorkersAIInferencer {
@@ -39,7 +41,19 @@ impl WorkersAIInferencer {
             retry_config: RetryConfig::default(),
             consent_manager: None,
             latency_tracker: LatencyTracker::new(100),
+            cost_monitor: None,
         }
+    }
+
+    pub fn new_with_monitor(
+        account_id: String,
+        api_token: String,
+        model_id: String,
+        monitor: Arc<CostMonitor>,
+    ) -> Self {
+        let mut s = Self::new(account_id, api_token, model_id);
+        s.cost_monitor = Some(monitor);
+        s
     }
 
     pub fn latency_tracker(&self) -> Arc<LatencyTracker> {
@@ -276,6 +290,9 @@ impl Inferencer for WorkersAIInferencer {
         })
         .await?;
         self.latency_tracker.record(t0.elapsed().as_millis() as u64);
+        if let Some(m) = &self.cost_monitor {
+            m.record(&self.model_id);
+        }
 
         let len = candidates.len();
         if let Some(best_idx) = parse_best_index(&api_resp.result.response, len) {

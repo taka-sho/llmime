@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod capabilities;
+pub mod cost_monitor;
 pub mod dispatcher;
 pub mod error;
 pub mod fallback_chain;
@@ -15,6 +16,7 @@ pub mod workers_ai;
 
 pub use builder::default_fallback_chain;
 pub use capabilities::InferencerCapabilities;
+pub use cost_monitor::CostMonitor;
 pub use dispatcher::Dispatcher;
 pub use error::InferenceError;
 pub use fallback_chain::FallbackChain;
