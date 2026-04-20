@@ -39,6 +39,37 @@ pub trait HistoryStore: Send + Sync {
 
     /// Delete all stored preference data (F-085 privacy reset).
     fn reset_all(&self);
+
+    /// Record rerank outcomes for trend analysis (F-083, F-118).
+    ///
+    /// Stores only sanitized linguistic metadata and aggregate score delta.
+    fn record_rerank(&self, event: &RerankHistoryEvent<'_>);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RerankTriggerKind {
+    RightContext,
+    Selection,
+}
+
+impl RerankTriggerKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RightContext => "right_context",
+            Self::Selection => "selection",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RerankHistoryEvent<'a> {
+    pub reading: &'a str,
+    pub initial_surface: &'a str,
+    pub reranked_surface: &'a str,
+    pub left_ctx: &'a str,
+    pub right_ctx: &'a str,
+    pub trigger_kind: RerankTriggerKind,
+    pub score_delta: f64,
 }
 
 // --------------------------------------------------------------------------
@@ -66,6 +97,21 @@ const SCHEMA: &str = "
         ON conversion_preference(reading, prev_context);
     CREATE INDEX IF NOT EXISTS idx_reading_full_context
         ON conversion_preference(reading, prev_context, next_context);
+
+    CREATE TABLE IF NOT EXISTS rerank_history (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading         TEXT NOT NULL,
+        initial_surface TEXT NOT NULL,
+        reranked_surface TEXT NOT NULL,
+        left_context    TEXT NOT NULL DEFAULT '',
+        right_context   TEXT NOT NULL DEFAULT '',
+        trigger_kind    TEXT NOT NULL CHECK (trigger_kind IN ('right_context', 'selection')),
+        score_delta     REAL NOT NULL DEFAULT 0.0,
+        created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rerank_history_reading_created
+        ON rerank_history(reading, created_at);
 ";
 
 pub struct SqliteHistoryStore {
@@ -170,6 +216,25 @@ impl HistoryStore for SqliteHistoryStore {
     fn reset_all(&self) {
         let conn = self.conn.lock().unwrap();
         let _ = conn.execute("DELETE FROM conversion_preference", []);
+        let _ = conn.execute("DELETE FROM rerank_history", []);
+    }
+
+    fn record_rerank(&self, event: &RerankHistoryEvent<'_>) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO rerank_history \
+             (reading, initial_surface, reranked_surface, left_context, right_context, trigger_kind, score_delta, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+            params![
+                event.reading,
+                event.initial_surface,
+                event.reranked_surface,
+                event.left_ctx,
+                event.right_ctx,
+                event.trigger_kind.as_str(),
+                event.score_delta
+            ],
+        );
     }
 }
 
@@ -366,5 +431,110 @@ mod tests {
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .unwrap();
         assert_eq!(mode, "memory", "in-memory DB uses 'memory' mode (WAL N/A)");
+    }
+
+    #[test]
+    fn rerank_history_table_exists_with_required_columns() {
+        let s = store();
+        let conn = s.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(rerank_history)")
+            .expect("prepare table_info");
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query table_info")
+            .filter_map(Result::ok)
+            .collect();
+
+        for required in [
+            "reading",
+            "initial_surface",
+            "reranked_surface",
+            "left_context",
+            "right_context",
+            "trigger_kind",
+            "score_delta",
+            "created_at",
+        ] {
+            assert!(
+                columns.iter().any(|c| c == required),
+                "missing column: {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn record_rerank_persists_right_context_event() {
+        let s = store();
+        s.record_rerank(&RerankHistoryEvent {
+            reading: "てんき",
+            initial_surface: "天気",
+            reranked_surface: "天氣",
+            left_ctx: "明日の",
+            right_ctx: "予報",
+            trigger_kind: RerankTriggerKind::RightContext,
+            score_delta: 0.42,
+        });
+
+        let conn = s.conn.lock().unwrap();
+        let (reading, initial, reranked, left_ctx, right_ctx, trigger, delta): (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            f64,
+        ) = conn
+            .query_row(
+                "SELECT reading, initial_surface, reranked_surface, left_context, right_context, trigger_kind, score_delta \
+                 FROM rerank_history ORDER BY id DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .expect("row exists");
+
+        assert_eq!(reading, "てんき");
+        assert_eq!(initial, "天気");
+        assert_eq!(reranked, "天氣");
+        assert_eq!(left_ctx, "明日の");
+        assert_eq!(right_ctx, "予報");
+        assert_eq!(trigger, "right_context");
+        assert!((delta - 0.42).abs() < 1e-9);
+    }
+
+    #[test]
+    fn record_rerank_persists_selection_event() {
+        let s = store();
+        s.record_rerank(&RerankHistoryEvent {
+            reading: "へんかん",
+            initial_surface: "変換",
+            reranked_surface: "返還",
+            left_ctx: "文脈",
+            right_ctx: "",
+            trigger_kind: RerankTriggerKind::Selection,
+            score_delta: -1.25,
+        });
+
+        let conn = s.conn.lock().unwrap();
+        let (trigger, delta): (String, f64) = conn
+            .query_row(
+                "SELECT trigger_kind, score_delta FROM rerank_history ORDER BY id DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("row exists");
+        assert_eq!(trigger, "selection");
+        assert!((delta + 1.25).abs() < 1e-9);
     }
 }
