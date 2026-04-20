@@ -55,7 +55,7 @@ mod tests {
         tracker.record(300);
         tracker.record(400);
         let p50 = tracker.p50().unwrap();
-        assert!(p50 >= 200 && p50 <= 300, "p50={p50}");
+        assert!((200..=300).contains(&p50), "p50={p50}");
     }
 
     #[test]
@@ -65,7 +65,7 @@ mod tests {
             tracker.record(i * 10);
         }
         let p95 = tracker.p95().unwrap();
-        assert!(p95 >= 940 && p95 <= 1000, "p95={p95}");
+        assert!((940..=1000).contains(&p95), "p95={p95}");
     }
 
     #[test]

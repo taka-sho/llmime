@@ -1161,17 +1161,23 @@ name = "llmime-imk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cc",
  "llmime-core",
  "log",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
 name = "llmime-tsf"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "llmime-core",
  "log",
+ "tempfile",
+ "tokio",
  "windows",
 ]
 
