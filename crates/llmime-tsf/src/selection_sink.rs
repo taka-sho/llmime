@@ -273,4 +273,23 @@ mod tests {
             "alt chord should be reserved for host shortcuts"
         );
     }
+
+    #[test]
+    fn shortcut_reevaluate_is_blocked_without_command_or_ctrl() {
+        let mut sink = SelectionSink::new();
+        let event = sink.on_shortcut_reevaluate(
+            3,
+            6,
+            "候補",
+            ShortcutModifiers {
+                command_or_ctrl: false,
+                shift: true,
+                alt: false,
+            },
+        );
+        assert!(
+            event.is_none(),
+            "chord without cmd/ctrl should not bypass debounce"
+        );
+    }
 }
