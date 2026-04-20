@@ -30,7 +30,7 @@ pub use reading_index::{
 };
 pub use rerank::{
     BoundaryEvent, ModifierState, RerankConfig, RerankQueue, RerankRequest, SelectionRerankRequest,
-    SelectionRerankTrigger, StreamingBoundaryDetector, Token,
+    SelectionRerankTrigger, SelectionReranker, StreamingBoundaryDetector, Token,
 };
 pub use scoring::{Candidate, CandidateScore, NgramScorer, Scorer};
 pub use user_dict::UserDict;
