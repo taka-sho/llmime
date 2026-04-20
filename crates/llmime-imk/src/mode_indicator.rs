@@ -218,7 +218,7 @@ mod tests {
     fn override_active_shows_override_suffix() {
         let mut indicator = ModeIndicator::new();
         indicator.update_with_override(InputMode::Performance, true);
-        assert_eq!(indicator.is_override_active(), true);
+        assert!(indicator.is_override_active());
         assert!(indicator.display_label().contains("上書き中"));
         assert_eq!(indicator.current_mode(), InputMode::Performance);
     }
@@ -227,7 +227,7 @@ mod tests {
     fn no_override_shows_plain_icon() {
         let mut indicator = ModeIndicator::new();
         indicator.update_with_override(InputMode::Privacy, false);
-        assert_eq!(indicator.is_override_active(), false);
+        assert!(!indicator.is_override_active());
         assert_eq!(indicator.display_label(), "🔒");
     }
 
