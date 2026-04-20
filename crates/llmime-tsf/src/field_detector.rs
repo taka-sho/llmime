@@ -1,13 +1,4 @@
-/// Field classification result for IME behaviour control.
-#[derive(Debug, Clone, PartialEq)]
-pub enum FieldClass {
-    /// Password or credit-card field — suppress IME input.
-    Sensitive,
-    /// Normal text field — IME input allowed.
-    NonSensitive,
-    /// Could not determine field type (COM error or no scopes reported).
-    Unknown,
-}
+pub use llmime_core::field::FieldClass;
 
 pub struct FieldDetector;
 
@@ -74,18 +65,12 @@ mod tests {
 
     #[test]
     fn password_field() {
-        assert_eq!(
-            FieldDetector::classify_scopes(&[76]),
-            FieldClass::Sensitive
-        );
+        assert_eq!(FieldDetector::classify_scopes(&[76]), FieldClass::Sensitive);
     }
 
     #[test]
     fn creditcard_field() {
-        assert_eq!(
-            FieldDetector::classify_scopes(&[79]),
-            FieldClass::Sensitive
-        );
+        assert_eq!(FieldDetector::classify_scopes(&[79]), FieldClass::Sensitive);
     }
 
     #[test]
