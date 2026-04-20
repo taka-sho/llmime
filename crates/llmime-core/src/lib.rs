@@ -8,6 +8,7 @@ pub mod morphology;
 pub mod paths;
 pub mod pipeline;
 pub mod reading_index;
+pub mod rerank;
 pub mod scoring;
 pub mod user_dict;
 pub mod ux;
