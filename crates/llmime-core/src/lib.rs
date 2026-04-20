@@ -15,7 +15,7 @@ pub mod ux;
 
 pub use config::{ConfigError, LlmimeConfig, LocalLlmConfig, WorkersAIConfig};
 pub use consent::ConsentManager;
-pub use history::{HistoryStore, SqliteHistoryStore};
+pub use history::{HistoryStore, RerankHistoryEvent, RerankTriggerKind, SqliteHistoryStore};
 pub use inference::{
     default_fallback_chain, CostCapKind, CostGuard, Dispatcher, DynInferencer, FallbackChain,
     InferenceError, Inferencer, InputMode, LocalLlmInferencer, LocalNgramInferencer, ModeManager,
@@ -29,10 +29,11 @@ pub use reading_index::{
     LmScorer, MozcReadingIndex, ReadingEntry, ReadingIndex, ViterbiConfig, ViterbiLattice,
 };
 pub use rerank::{
-    AnimationCommand, AnimationPlan, AnimationScheduler, BoundaryEvent, ModifierState,
-    RerankConfig, RerankQueue, RerankRequest, SelectionRerankRequest, SelectionRerankTrigger,
-    SelectionReranker, StreamingBoundaryDetector, Token, UpdateUxFeedback,
-    DEFAULT_HIGHLIGHT_CONFIDENCE_DELTA,
+    AnimationCommand, AnimationPlan, AnimationScheduler, BoundaryEvent, InlinePopupCard,
+    InlinePopupController, InlinePopupUiLayer, ModifierState, PopupCandidate, PopupCandidateView,
+    PopupCloseReason, RerankConfig, RerankQueue, RerankRequest, SelectionRange,
+    SelectionRerankRequest, SelectionRerankTrigger, SelectionReranker, StreamingBoundaryDetector,
+    Token, UpdateUxFeedback, DEFAULT_HIGHLIGHT_CONFIDENCE_DELTA,
 };
 pub use scoring::{Candidate, CandidateScore, NgramScorer, Scorer};
 pub use user_dict::UserDict;
