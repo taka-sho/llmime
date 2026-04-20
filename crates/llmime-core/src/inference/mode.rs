@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use crate::field::FieldClass;
 
+use super::override_manager::OverrideManager;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
@@ -66,6 +68,19 @@ impl ModeManager {
             },
             other => other,
         }
+    }
+
+    /// Hybrid mode resolution with user override support.
+    /// If `override_mgr` has an active override, it takes priority over the Hybrid resolution.
+    pub fn effective_mode_with_override(
+        &self,
+        focus: FieldClass,
+        base: InputMode,
+        override_mgr: &OverrideManager,
+    ) -> InputMode {
+        override_mgr
+            .effective_override()
+            .unwrap_or_else(|| self.effective_mode(focus, base))
     }
 
     /// `input_mode = "privacy"` 形式の設定ファイルから初期モードを読み込む。
@@ -222,5 +237,59 @@ mod tests {
             mgr.effective_mode(FieldClass::Unknown, InputMode::Hybrid),
             InputMode::Privacy
         );
+    }
+
+    // effective_mode_with_override tests
+
+    #[test]
+    fn override_takes_priority_over_hybrid_resolution() {
+        use super::super::override_manager::OverrideManager;
+        use std::time::Duration;
+
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        let mut override_mgr = OverrideManager::new();
+        override_mgr.set_override(InputMode::Performance, Duration::from_secs(60));
+
+        // Sensitive field would normally → Privacy, but override → Performance
+        let result = mgr.effective_mode_with_override(
+            FieldClass::Sensitive,
+            InputMode::Hybrid,
+            &override_mgr,
+        );
+        assert_eq!(result, InputMode::Performance);
+    }
+
+    #[test]
+    fn no_override_falls_back_to_effective_mode() {
+        use super::super::override_manager::OverrideManager;
+
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        let override_mgr = OverrideManager::new();
+
+        let result = mgr.effective_mode_with_override(
+            FieldClass::Sensitive,
+            InputMode::Hybrid,
+            &override_mgr,
+        );
+        assert_eq!(result, InputMode::Privacy);
+    }
+
+    #[test]
+    fn expired_override_falls_back_to_effective_mode() {
+        use super::super::override_manager::OverrideManager;
+        use std::{thread::sleep, time::Duration};
+
+        let mgr = ModeManager::new(InputMode::Hybrid);
+        let mut override_mgr = OverrideManager::new();
+        override_mgr.set_override(InputMode::Performance, Duration::from_millis(10));
+        sleep(Duration::from_millis(20));
+
+        // Expired override: NonSensitive → Performance (from Hybrid resolution)
+        let result = mgr.effective_mode_with_override(
+            FieldClass::NonSensitive,
+            InputMode::Hybrid,
+            &override_mgr,
+        );
+        assert_eq!(result, InputMode::Performance);
     }
 }
