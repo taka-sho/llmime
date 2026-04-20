@@ -206,4 +206,14 @@ mod tests {
         };
         assert!(!is_force_rerank_shortcut(VIRTUAL_KEY(0x52), mods));
     }
+
+    #[test]
+    fn shortcut_does_not_fire_without_command_or_ctrl() {
+        let mods = ModifierState {
+            command_or_ctrl: false,
+            shift: true,
+            alt: false,
+        };
+        assert!(!is_force_rerank_shortcut(VIRTUAL_KEY(0x52), mods));
+    }
 }
