@@ -50,6 +50,16 @@ impl SelectionSink {
         acp_end: i32,
         text: &str,
     ) -> Option<SelectionEvent> {
+        self.on_selection_change_at(acp_start, acp_end, text, Instant::now())
+    }
+
+    fn on_selection_change_at(
+        &mut self,
+        acp_start: i32,
+        acp_end: i32,
+        text: &str,
+        now: Instant,
+    ) -> Option<SelectionEvent> {
         if self.is_composing {
             return None;
         }
@@ -64,7 +74,7 @@ impl SelectionSink {
             start: acp_start,
             end: acp_end,
             text: text.to_string(),
-            since: Instant::now(),
+            since: now,
         });
         None
     }
@@ -123,7 +133,7 @@ mod tests {
     fn selection_change_fires_event_after_delay() {
         let mut sink = SelectionSink::new();
         let t0 = Instant::now();
-        assert!(sink.on_selection_change(0, 5, "hello").is_none());
+        assert!(sink.on_selection_change_at(0, 5, "hello", t0).is_none());
         assert!(sink
             .poll_confirmed_at(t0 + Duration::from_millis(199))
             .is_none());
@@ -158,7 +168,7 @@ mod tests {
         sink.set_composing(true);
         assert!(sink.on_selection_change(0, 3, "abc").is_none());
         sink.set_composing(false);
-        sink.on_selection_change(0, 3, "abc");
+        sink.on_selection_change_at(0, 3, "abc", t0);
         let event = sink.poll_confirmed_at(t0 + SelectionSink::CONFIRM_DELAY);
         assert!(event.is_some(), "should fire event after composition ends");
     }
@@ -167,7 +177,7 @@ mod tests {
     fn duplicate_selection_is_suppressed() {
         let mut sink = SelectionSink::new();
         let t0 = Instant::now();
-        sink.on_selection_change(0, 3, "abc");
+        sink.on_selection_change_at(0, 3, "abc", t0);
         assert!(sink
             .poll_confirmed_at(t0 + SelectionSink::CONFIRM_DELAY)
             .is_some());
