@@ -254,10 +254,34 @@ def _viterbi_by_cost(
                     next_pos = pos + word_len
                     if next_pos > total:
                         continue
-                    # Penalise single-char zero-cost entries (hiragana fallbacks).
+                    # Penalise hiragana/mixed passthrough entries that match the reading slice.
+                    # These are function-word entries that happen to spell out content-word
+                    # readings, causing cheap garbage paths to dominate real content words.
                     effective_cost = entry_cost
+                    reading_slice = "".join(chars[pos:pos + word_len])
+                    _has_hira = lambda s: any("\u3041" <= c <= "\u309f" for c in s)
                     if word_len == 1:
                         effective_cost = max(entry_cost, 3000)
+                    elif surface == reading_slice:
+                        # Pure hiragana passthrough: floor prevents cheap function-word entries
+                        # from dominating content words. Floor is higher for short entries
+                        # (most likely garbage paths) and lower for longer entries where
+                        # hiragana may be the legitimate standard form (e.g. "ください").
+                        passthrough_floor = 3000 if word_len <= 3 else 800
+                        effective_cost = max(entry_cost, passthrough_floor)
+                    elif all("\u3041" <= c <= "\u309f" for c in surface):
+                        # Multi-char all-hiragana surface: floor at 2000
+                        effective_cost = max(entry_cost, 2000)
+                    elif _has_hira(surface) and entry_cost < 500:
+                        # Cheap mixed kanji+hiragana conjugation forms (e.g. "出ん" cost=21)
+                        # are likely auxiliary/dialect forms; prevent them dominating content words.
+                        effective_cost = max(entry_cost, 3000)
+                    # Length reward: longer content words get a cost reduction to compete
+                    # against sequences of short function-word entries.
+                    # Capped at 1200 to prevent long compounds from over-dominating splits.
+                    if word_len >= 3:
+                        length_reward = min((word_len - 2) * 600, 1200)
+                        effective_cost = max(0, effective_cost - length_reward)
                     # POS bigram connection penalty
                     pos_pen = int(pos_penalty_alpha * _pos_connection_penalty(last_pos, entry_pos))
                     beam[next_pos].append((
@@ -273,10 +297,12 @@ def _viterbi_by_cost(
     seen: set[str] = set()
     result = []
     for cost, surfaces, _pos in final:
-        joined = "".join(surfaces)
-        if joined not in seen:
-            seen.add(joined)
-            result.append((cost, joined))
+        # Space-joined for KenLM morpheme-level scoring; stripped version for dedup
+        joined_spaces = " ".join(surfaces)
+        joined_nospace = "".join(surfaces)
+        if joined_nospace not in seen:
+            seen.add(joined_nospace)
+            result.append((cost, joined_spaces))
     return result
 
 
@@ -328,7 +354,7 @@ def evaluate(
     - Viterbi fallback (F/unknown): cost-only Viterbi → batch LM scoring
     All LM scoring is batched globally in ONE kenlm call.
     """
-    cost_alpha = 0.01
+    cost_alpha = 0.05
 
     def _build_lm_sentence(item: TestItem, surface: str) -> str:
         """Compose LM input sentence.
@@ -381,12 +407,13 @@ def evaluate(
     results = []
     for item, cands, (start, end) in zip(items, item_cands, slice_bounds):
         item_scores = all_scores[start:end]
+        # Viterbi surfaces may be space-joined for LM; strip for kanji/passthrough checks
         has_kanji_alt = any(_has_kanji(surface) for _, surface in cands)
         scored = [
             (
                 lm_score
                 - cost_alpha * (cost / 100.0)
-                - (_PASSTHROUGH_PENALTY if (surface == item.reading and has_kanji_alt) else 0.0),
+                - (_PASSTHROUGH_PENALTY if (surface.replace(" ", "") == item.reading and has_kanji_alt) else 0.0),
                 surface,
             )
             for (cost, surface), lm_score in zip(cands, item_scores)
@@ -396,9 +423,10 @@ def evaluate(
         seen: set[str] = set()
         top_candidates = []
         for _, surface in scored:
-            if surface not in seen:
-                seen.add(surface)
-                top_candidates.append(surface)
+            display = surface.replace(" ", "")
+            if display not in seen:
+                seen.add(display)
+                top_candidates.append(display)
                 if len(top_candidates) >= top_k:
                     break
         if not top_candidates:
@@ -472,6 +500,7 @@ def render_report(
     mozc_dir: Path,
     lm: LanguageModel,
     verbose: bool,
+    beam_width: int = 64,
 ) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     m1, m2, m3, m4, m5 = metrics["m1"], metrics["m2"], metrics["m3"], metrics["m4"], metrics["m5"]
@@ -487,7 +516,7 @@ def render_report(
         f"- Model: {model_path} ({size_mb:.1f} MB, {n_gram_str})",
         f"- Test set: {testset_path} ({metrics['total']} samples)",
         f"- Mozc dict: {mozc_dir.name}",
-        f"- Algorithm: direct lookup + Viterbi fallback (beam=16) + global batch KenLM",
+        f"- Algorithm: direct lookup + Viterbi fallback (beam={beam_width}) + global batch KenLM",
         "",
         "## 主要指標",
         "",
@@ -555,6 +584,7 @@ def main() -> None:
     parser.add_argument("--mozc-dict", type=Path, dest="mozc_dict", default=None)
     parser.add_argument("--vibrato-dict", type=Path, dest="vibrato_dict", default=None)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--beam-width", type=int, default=64, dest="beam_width")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--category-filter", default="")
     parser.add_argument("--idiom-aliases", type=Path, dest="idiom_aliases", default=None)
@@ -596,12 +626,12 @@ def main() -> None:
             idiom_aliases = json.load(f)
         print(f"[INFO] Loaded {len(idiom_aliases)} idiom alias entries.", file=sys.stderr)
 
-    results = evaluate(items, index, lm, args.top_k, args.verbose, idiom_aliases=idiom_aliases)
+    results = evaluate(items, index, lm, args.top_k, args.verbose, beam_width=args.beam_width, idiom_aliases=idiom_aliases)
 
     metrics = compute_metrics(results)
     print(f"[INFO] M1={metrics['m1']}%  M2={metrics['m2']}%", file=sys.stderr)
 
-    report = render_report(metrics, results, args.model, args.testset, mozc_dir, lm, args.verbose)
+    report = render_report(metrics, results, args.model, args.testset, mozc_dir, lm, args.verbose, beam_width=args.beam_width)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
