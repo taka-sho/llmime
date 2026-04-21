@@ -24,5 +24,6 @@ pub use mode_indicator::ModeIndicator;
 pub use selection_watcher::{NSRange, SelectionEvent, SelectionWatcher};
 pub use session::{session_begin, session_end, with_session, Session};
 pub use text_replace::{
-    replace_selected_text_atomic, ImkTextClient, ReplaceOutcome, SelectionRange,
+    replace_and_record_selection, replace_selected_text_atomic, ImkTextClient, ReplaceOutcome,
+    SelectionRange, SelectionReplaceParams,
 };

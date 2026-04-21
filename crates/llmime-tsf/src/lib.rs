@@ -13,7 +13,8 @@ pub mod selection_sink;
 pub use selection_sink::{SelectionEvent, SelectionSink, ShortcutModifiers};
 pub mod text_replace;
 pub use text_replace::{
-    replace_selected_text_via_tsf, ReplaceError, ReplaceOutcome as TsfReplaceOutcome,
+    replace_selected_text_via_tsf, replace_via_tsf_and_record_selection, ReplaceError,
+    ReplaceOutcome as TsfReplaceOutcome, SelectionReplaceParams as TsfSelectionReplaceParams,
     TsfEditSession, TsfRangeWriter,
 };
 
