@@ -21,8 +21,13 @@ pub fn default_fallback_chain(mode: InputMode, cfg: &LlmimeConfig) -> FallbackCh
             FallbackChain::new(workers, vec![ngram], Duration::from_millis(300))
         }
         InputMode::Pro => {
-            let local_llm: DynInferencer =
-                Arc::new(LocalLlmInferencer::new(cfg.local_llm.model_path.clone()));
+            let local_llm: DynInferencer = match &cfg.local_llm.model_path {
+                Some(path) => match LocalLlmInferencer::new(path) {
+                    Ok(inf) => Arc::new(inf),
+                    Err(_) => Arc::new(LocalLlmInferencer::new_unavailable()),
+                },
+                None => Arc::new(LocalLlmInferencer::new_unavailable()),
+            };
             FallbackChain::new(local_llm, vec![ngram], Duration::from_millis(800))
         }
         // Hybrid: callers must resolve via ModeManager::effective_mode() first.

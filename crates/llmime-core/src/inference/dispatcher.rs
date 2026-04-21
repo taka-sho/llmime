@@ -87,7 +87,7 @@ mod tests {
             None
         };
         let local_llm = if c.has_local_llm {
-            Some(Arc::new(LocalLlmInferencer::new(None)))
+            Some(Arc::new(LocalLlmInferencer::new_unavailable()))
         } else {
             None
         };
