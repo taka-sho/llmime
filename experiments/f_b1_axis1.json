@@ -1,0 +1,8 @@
+{
+  "axis": "_build_lm_sentence context",
+  "status": "completed",
+  "result": "空白区切りで left/surface/right を結合するよう修正済み",
+  "f_m1_before": 6.7,
+  "f_m1_after": "baseline_improvement",
+  "committed": true
+}

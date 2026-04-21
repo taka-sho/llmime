@@ -1,0 +1,7 @@
+{
+  "axis": "BOS/EOS token",
+  "status": "completed",
+  "result": "KenLM Python binding は bos=True, eos=True がデフォルト。追加不要",
+  "f_m1_delta": 0,
+  "committed": true
+}

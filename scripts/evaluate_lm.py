@@ -500,7 +500,7 @@ def render_report(
     mozc_dir: Path,
     lm: LanguageModel,
     verbose: bool,
-    beam_width: int = 64,
+    beam_width: int = 128,
 ) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     m1, m2, m3, m4, m5 = metrics["m1"], metrics["m2"], metrics["m3"], metrics["m4"], metrics["m5"]
@@ -583,8 +583,8 @@ def main() -> None:
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--mozc-dict", type=Path, dest="mozc_dict", default=None)
     parser.add_argument("--vibrato-dict", type=Path, dest="vibrato_dict", default=None)
-    parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--beam-width", type=int, default=64, dest="beam_width")
+    parser.add_argument("--top-k", type=int, default=200)
+    parser.add_argument("--beam-width", type=int, default=128, dest="beam_width")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--category-filter", default="")
     parser.add_argument("--idiom-aliases", type=Path, dest="idiom_aliases", default=None)

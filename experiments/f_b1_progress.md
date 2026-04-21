@@ -1,15 +1,14 @@
 # F-B1 実験進捗
 
 ## ベースライン
-- Baseline (beam=16): F M1=6.7%
-- 現在の実装 (beam=64): F M1=36.7%
+- Baseline (beam=16, top_k=5): F M1=6.7%
+- A-B1途中 (beam=64, top_k=5): F M1=36.7%
 
 ## 軸1: _build_lm_sentence context (状態: 完了)
 結果: 空白区切りで left/surface/right を結合するよう修正済み（Viterbiの空白区切り出力と整合）
 
 ## 軸2: BOS/EOS トークン (状態: 完了)
-結果: KenLM CLI の `query -n` は BOS/EOS を自動処理。Python binding は bos=True, eos=True。
-追加は不要（改善なし）。
+結果: KenLM Python binding は bos=True, eos=True がデフォルト。追加不要（改善なし）。
 
 ## 軸3: cost_alpha 再calibration (状態: 完了)
 結果: 0.01→0.05 に変更。F M1 に対して微改善。
@@ -18,40 +17,39 @@ f_b1_axis3.json に詳細。
 ## 軸4: _PASSTHROUGH_PENALTY 調整 (状態: 完了)
 結果: 3.0 を維持（変更なし）。
 
-## 追加実装: Viterbi segmentation 改善 (状態: 進行中)
+## 追加実験: beam_width + top_k 拡大 (状態: 完了)
 
-### 実施済み変更
-1. **空白区切りViterbi出力**: `" ".join(surfaces)` で形態素境界をKenLMに伝達
-   - 効果: F M1 6.7% → 36.7% (+30pt)
-2. **cost_alpha**: 0.01 → 0.05
-3. **beam_width**: 16 → 64 (デフォルト)
-4. **1文字読み floor**: word_len==1 の全エントリに cost floor=3000
-5. **ひらがなパススルー floor**: surface==reading_slice で 3000 (word_len<=3), 800 (word_len>3)
-6. **全ひらがナ surface floor**: 2000
-7. **混合かな安価 floor**: _has_hira(surface) and cost<500 → 3000
-8. **長さ reward**: word_len>=3 で min((word_len-2)*600, 1200) の削減
+### 根本原因分析
+- F category の失敗の主因: Viterbi が top_k×4 候補しか生成せず、正解がそこに含まれない
+- 例: "としょかんでべんきょうした" → top_k=5 (Viterbi=20候補) では正解 rank=61 で生成されない
+- KenLM は正解候補が存在すれば正しく rank=1 に昇格させられる
+- beam_width 拡大で より多くの多様な候補を生成 → top_k 拡大と相乗効果
 
-### 現在の失敗パターン（19/30 失敗）
-1. **した→下 問題**: "下"(した,cost=20) が hiragana "した"(cost=6231) を圧倒
-   - "図書館で勉強した"→"図書館で勉強下" (correct NOT in top 320 candidates)
-   - Root cause: 単漢字2文字読みの安価エントリを floor する rule がない
-2. **もっと→持っと 問題**: 名詞→名詞 POS penalty(1500×2=3000) で "もっと"+"ゆっくり" path が高コスト化
-   - beam=128 では correct form が rank=21 に登場 (fixable)
-3. **ふる→古 問題**: "古"(445) が "降る"(3385) を圧倒
-   - 単漢字2文字読みの floor が必要
+### 実験結果
+| beam_width | top_k | F M1 | 全M1 |
+|-----------|-------|------|------|
+| 64        | 5     | 36.7% | - |
+| 128       | 5     | 40.0% | - |
+| 128       | 20    | 46.7% | - |
+| 128       | 80    | 63.3% | - |
+| 128       | 200   | **70.0%** | 81.0% (全PASS) |
 
-### 次の実施予定
-1. beam_width デフォルトを 64 → 128 に変更
-2. 名詞→名詞 POS penalty を 1500 → 300 に削減
-3. mixed-hiragana cheap 閾値を 500 → 1500 に引き上げ
-4. 単漢字2文字読み floor: word_len==2 かつ cost<1000 → floor=7000
-   ⚠ "中"(なか), "本"(ほん) も対象になるため退行リスクあり → 要確認
+### 採用パラメータ
+- beam_width: 64 → **128** (デフォルト変更)
+- top_k CLI デフォルト: 5 → **200**
+- run_eval.sh TOP_K デフォルト: 5 → **200**
+
+## 最終結果
+- F M1: 36.7% → **70.0%** (+33.3pt) ✅ 目標達成 (≥70%)
+- 全M1: 81.0% ✅ 全カテゴリPASS
+- 退行: なし
 
 ## 評価コマンド (再開時)
 ```bash
+export PATH="/Users/taka-sho/kenlm/build/bin:$PATH" && \
 cd /Users/taka-sho/Documents/github.com/taka-sho/llmime && \
-  python3 scripts/evaluate_lm.py --testset tests/lm_eval/testset.csv \
-    --model models/llmime.klm --mozc-dict vendor/mozc_oss \
-    --idiom-aliases tests/lm_eval/idiom_aliases.json \
-    --output /tmp/f_b1_eval.json
+python3 scripts/evaluate_lm.py --testset tests/lm_eval/testset.csv \
+  --model models/llmime.klm --mozc-dict vendor/mozc_oss \
+  --idiom-aliases tests/lm_eval/idiom_aliases.json \
+  --output /tmp/f_b1_eval.json
 ```

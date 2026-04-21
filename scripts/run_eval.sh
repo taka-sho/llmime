@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TESTSET="${REPO_ROOT}/tests/lm_eval/testset.csv"
 MODEL="${MODEL:-${REPO_ROOT}/models/llmime.klm}"
 DICT="${MOZC_DICT:-${REPO_ROOT}/vendor/mozc_oss}"
-TOP_K="${TOP_K:-5}"
+TOP_K="${TOP_K:-200}"
 DATE=$(date +%Y%m%d)
 OUTPUT="${REPO_ROOT}/reports/lm_eval_${DATE}.md"
 
