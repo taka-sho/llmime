@@ -10,6 +10,7 @@ pub mod latency_tracker;
 pub mod local_llm;
 pub mod local_ngram;
 pub mod mode;
+pub mod model_downloader;
 pub mod override_manager;
 pub mod retry;
 pub mod token_counter;
@@ -28,6 +29,11 @@ pub use latency_tracker::LatencyTracker;
 pub use local_llm::LocalLlmInferencer;
 pub use local_ngram::LocalNgramInferencer;
 pub use mode::{InputMode, ModeManager};
+pub use model_downloader::{
+    default_models_dir, resolve_model_path, DefaultModelConfig, DownloadError, DownloadProgress,
+    ModelDownloadManager, DEFAULT_MODEL_NAME, DEFAULT_MODEL_SHA256, DEFAULT_MODEL_SIZE_BYTES,
+    DEFAULT_MODEL_URL,
+};
 pub use override_manager::OverrideManager;
 pub use token_counter::TokenCounter;
 pub use warmup::{WarmupOrchestrator, WarmupStatus};
