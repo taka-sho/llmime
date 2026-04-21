@@ -3,6 +3,7 @@ fn main() {
     {
         cc::Build::new()
             .file("objc/LlmimeIMController.m")
+            .file("objc/imk_main.m")
             .flag("-fobjc-arc")
             .compile("llmime_imk_objc");
 
@@ -10,5 +11,6 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=Foundation");
         println!("cargo:rerun-if-changed=objc/LlmimeIMController.m");
+        println!("cargo:rerun-if-changed=objc/imk_main.m");
     }
 }
