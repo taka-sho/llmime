@@ -15,6 +15,7 @@ pub enum CandidateSource {
     Ngram,
     WorkersAI,
     LocalLlm,
+    Ollama,
     UserDict,
 }
 
