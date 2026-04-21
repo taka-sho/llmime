@@ -11,4 +11,5 @@ vendor/mozc_oss/README.txt
 vendor/mozc_oss/LICENSE
 __pycache__/
 .env.local
-scripts/s00*.py
+scripts/s002_*.py
+scripts/s003_*.py
