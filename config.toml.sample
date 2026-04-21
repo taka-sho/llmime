@@ -1,0 +1,26 @@
+# llmime configuration sample
+# Copy to ~/.config/llmime/config.toml (macOS/Linux) or %APPDATA%\llmime\config.toml (Windows)
+# All values are optional; env vars take priority over this file.
+
+[workers_ai]
+# account_id = "your-cloudflare-account-id"   # or: CLOUDFLARE_ACCOUNT_ID env var
+# api_token   = "your-cloudflare-api-token"    # or: CLOUDFLARE_API_TOKEN env var
+# model_id    = "@cf/qwen/qwen3-30b-a3b-fp8"   # or: WORKERS_AI_MODEL_ID env var
+# timeout_ms  = 1500
+# retry_count = 2
+# cost_limit_hour = 0.10   # USD; rejects requests when exceeded
+# cost_limit_day  = 1.00   # USD
+
+[local_llm]
+# model_path = "/path/to/gguf-model.bin"       # optional local fallback
+
+# input_mode = "privacy"   # "standard" | "privacy" (default: privacy)
+
+[rerank]
+# Parameters confirmed by S-005 spike (2026-04-21, seed=42, 27 conditions / 50 test cases).
+# Pareto-optimal condition: M1=48.0% M2-p50=190ms M3=0.0%
+#
+# window_size = 7      # N: recent tokens inspected for low-confidence candidates
+# threshold   = 0.6    # P: confidence below which a token is a rerank candidate
+# min_confidence_delta = 0.2   # D: minimum improvement delta to apply the update
+#                                    (see DEFAULT_MIN_CONFIDENCE_DELTA in update_gate.rs)

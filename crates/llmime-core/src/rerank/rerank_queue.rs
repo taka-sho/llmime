@@ -19,8 +19,8 @@ pub struct RerankConfig {
 impl Default for RerankConfig {
     fn default() -> Self {
         Self {
-            window_size: 5,
-            threshold: 0.7,
+            window_size: 7,
+            threshold: 0.6,
             channel_capacity: 32,
             batch_window_ms: 40,
             coalesce_char_gap: 6,
