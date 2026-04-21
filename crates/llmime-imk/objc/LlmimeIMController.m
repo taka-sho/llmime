@@ -138,7 +138,7 @@ static inline uint64_t session_id_of(id obj) {
 
     id client = [self client];
     if (client && text) {
-        [client insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+        [self replaceSelectedTextAtomically:text client:client];
         // Clear preedit display after commit.
         [client setMarkedText:@""
                selectionRange:NSMakeRange(0, 0)
@@ -149,6 +149,38 @@ static inline uint64_t session_id_of(id obj) {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+/// Replaces selected committed text via insertText:replacementRange:.
+/// Falls back to plain insertion when selected-range replacement fails.
+- (void)replaceSelectedTextAtomically:(NSString *)text client:(id)client {
+    NSUndoManager *undoManager = nil;
+    if ([client respondsToSelector:@selector(undoManager)]) {
+        undoManager = [client undoManager];
+        [undoManager beginUndoGrouping];
+    }
+
+    BOOL replaced = NO;
+    NSRange selected = NSMakeRange(NSNotFound, 0);
+    if ([client respondsToSelector:@selector(selectedRange)]) {
+        selected = [client selectedRange];
+    }
+
+    @try {
+        [client insertText:text replacementRange:selected];
+        replaced = YES;
+    } @catch (NSException *exception) {
+        (void)exception;
+        replaced = NO;
+    }
+
+    if (!replaced) {
+        [client insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
+
+    if (undoManager) {
+        [undoManager endUndoGrouping];
+    }
+}
 
 /// Updates the preedit underline display in the client text view.
 - (void)updatePreedit:(id)sender {

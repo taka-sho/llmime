@@ -14,6 +14,7 @@ pub mod inline_popup_layer;
 pub mod mode_indicator;
 pub mod selection_watcher;
 pub mod session;
+pub mod text_replace;
 
 pub use candidates::get_candidates;
 pub use field_detector::{FieldClass, FieldDetector};
@@ -22,3 +23,6 @@ pub use inline_popup_layer::InlinePopupLayer;
 pub use mode_indicator::ModeIndicator;
 pub use selection_watcher::{NSRange, SelectionEvent, SelectionWatcher};
 pub use session::{session_begin, session_end, with_session, Session};
+pub use text_replace::{
+    replace_selected_text_atomic, ImkTextClient, ReplaceOutcome, SelectionRange,
+};
