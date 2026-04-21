@@ -319,6 +319,16 @@ def evaluate(
     """
     cost_alpha = 0.01
 
+    def _build_lm_sentence(item: TestItem, surface: str) -> str:
+        """Compose LM input sentence.
+
+        KenLM model is trained with whitespace token boundaries. When context
+        exists, score as "left surface right" instead of raw concatenation.
+        """
+        if item.context_left or item.context_right:
+            return " ".join(p for p in (item.context_left, surface, item.context_right) if p)
+        return surface
+
     # Phase 1: collect candidate surfaces + sentences
     item_cands: list[list[tuple[int, str]]] = []  # [(cost, surface)]
     all_sentences: list[str] = []
@@ -340,9 +350,7 @@ def evaluate(
         item_cands.append(normed)
         start = len(all_sentences)
         for cost, surface in normed:
-            # Use full context: left + surface + right for richer LM signal.
-            parts = [p for p in (item.context_left, surface, item.context_right) if p]
-            sentence = "".join(parts)
+            sentence = _build_lm_sentence(item, surface)
             all_sentences.append(sentence)
         slice_bounds.append((start, len(all_sentences)))
 
