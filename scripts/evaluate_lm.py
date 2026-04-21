@@ -218,8 +218,8 @@ def _viterbi_by_cost(
     reading: str,
     index: MozcReadingIndex,
     beam_width: int = 16,
-    top_k: int = 20,
-    pos_penalty_alpha: float = 1.0,
+    top_k: int = 80,
+    pos_penalty_alpha: float = 2.0,
 ) -> list[tuple[int, str]]:
     """Viterbi beam search using mozc cost + POS bigram connection penalty.
 
@@ -354,7 +354,7 @@ def evaluate(
             normed = [(cost, surface) for surface, cost in cands]
         else:
             # Viterbi fallback for multi-bunsetsu / unknown words
-            normed = _viterbi_by_cost(item.reading, index, beam_width, top_k * 4)
+            normed = _viterbi_by_cost(item.reading, index, beam_width, top_k * 4, 2.0)
             if not normed:
                 normed = [(0, item.reading)]
 
