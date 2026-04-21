@@ -1322,6 +1322,7 @@ dependencies = [
  "llmime-core",
  "predicates",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1343,6 +1344,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "tracing",
  "vibrato",
  "wiremock",
 ]

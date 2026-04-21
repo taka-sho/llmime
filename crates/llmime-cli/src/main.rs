@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
 use llmime_core::{
-    KenLMModel, LanguageModel, LlmimePaths, MozcReadingIndex, NgramScorer, ReadingIndex, Scorer,
-    VibratoTokenizer, ViterbiLattice,
+    Inferencer, KenLMModel, LanguageModel, LlmimePaths, LocalLlmInferencer, MozcReadingIndex,
+    NgramScorer, ReadingIndex, Scorer, VibratoTokenizer, ViterbiLattice,
 };
+use llmime_core::inference::{CandidateSource, CandidateWithScore};
 
 #[derive(Parser)]
 #[command(name = "llmime", about = "LLM-powered Japanese IME")]
@@ -23,6 +24,25 @@ enum Commands {
         dict: Option<std::path::PathBuf>,
         #[arg(long, env = "LLMIME_MOZC_DICT")]
         mozc_dict: Option<std::path::PathBuf>,
+    },
+    /// Rerank candidates using the specified inference backend.
+    /// Outputs JSON: {"status":"ok"|"unavailable","candidates":[...],"latency_ms":N}
+    Rerank {
+        /// Inference mode (local-llm)
+        #[arg(long, default_value = "local-llm")]
+        mode: String,
+        /// Path to GGUF model file (env: LLMIME_LOCAL_MODEL)
+        #[arg(long, env = "LLMIME_LOCAL_MODEL")]
+        model_path: Option<std::path::PathBuf>,
+        /// Reading (よみ)
+        #[arg(long)]
+        reading: String,
+        /// Candidates as JSON array of surface strings, e.g. '["東京","投京"]'
+        #[arg(long)]
+        candidates: String,
+        /// Left context string
+        #[arg(long)]
+        left_context: Option<String>,
     },
     Version,
 }
@@ -52,11 +72,88 @@ fn run_convert_mozc<I: ReadingIndex, L: LanguageModel>(
     Ok(())
 }
 
+fn run_rerank(
+    mode: &str,
+    model_path: Option<std::path::PathBuf>,
+    reading: &str,
+    candidates_json: &str,
+    left_context: Option<&str>,
+) -> anyhow::Result<()> {
+    if mode != "local-llm" {
+        anyhow::bail!("unsupported mode: {mode}. Only 'local-llm' is supported.");
+    }
+
+    let surfaces: Vec<String> = serde_json::from_str(candidates_json)
+        .map_err(|e| anyhow::anyhow!("invalid candidates JSON: {e}"))?;
+
+    let candidates: Vec<CandidateWithScore> = surfaces
+        .into_iter()
+        .enumerate()
+        .map(|(i, surface)| CandidateWithScore {
+            surface,
+            score: -(i as f32),
+            source: CandidateSource::Ngram,
+        })
+        .collect();
+
+    let inferencer = match model_path {
+        Some(ref p) => match LocalLlmInferencer::new(p) {
+            Ok(inf) => inf,
+            Err(_) => LocalLlmInferencer::new_unavailable(),
+        },
+        None => LocalLlmInferencer::new_unavailable(),
+    };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    let start = std::time::Instant::now();
+    let result = rt.block_on(inferencer.rerank(reading, candidates, left_context));
+    let latency_ms = start.elapsed().as_millis();
+
+    let output = match result {
+        Ok(reranked) => {
+            let surfaces: Vec<String> = reranked.into_iter().map(|c| c.surface).collect();
+            serde_json::json!({
+                "status": "ok",
+                "candidates": surfaces,
+                "latency_ms": latency_ms,
+            })
+        }
+        Err(e) => {
+            serde_json::json!({
+                "status": "unavailable",
+                "reason": e.to_string(),
+                "latency_ms": latency_ms,
+            })
+        }
+    };
+
+    println!("{}", serde_json::to_string(&output)?);
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Version => {
             println!("llmime {}", env!("CARGO_PKG_VERSION"));
+        }
+        Commands::Rerank {
+            mode,
+            model_path,
+            reading,
+            candidates,
+            left_context,
+        } => {
+            run_rerank(
+                &mode,
+                model_path,
+                &reading,
+                &candidates,
+                left_context.as_deref(),
+            )?;
         }
         Commands::Convert {
             reading,
@@ -273,8 +370,6 @@ mod tests {
             ],
         };
         let lm = MockLM { score_val: -2.0 };
-        // top_k=2 should limit to 2 results (but since scores are equal, dedup handles surface uniqueness)
-        // With same score, all 3 entries have different surfaces so no dedup
         assert!(run_convert_mozc(&index, &lm, "てんき", 2).is_ok());
     }
 
@@ -282,6 +377,21 @@ mod tests {
     fn version_subcommand_exits_zero() {
         let mut cmd = assert_cmd::Command::cargo_bin("llmime").unwrap();
         cmd.arg("version").assert().success();
+    }
+
+    #[test]
+    fn rerank_no_model_returns_unavailable_json() {
+        let mut cmd = assert_cmd::Command::cargo_bin("llmime").unwrap();
+        cmd.args([
+            "rerank",
+            "--mode", "local-llm",
+            "--reading", "とうきょう",
+            "--candidates", r#"["東京","投京"]"#,
+        ])
+        .env_remove("LLMIME_LOCAL_MODEL")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("unavailable"));
     }
 
     #[test]
