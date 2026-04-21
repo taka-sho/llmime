@@ -11,6 +11,7 @@ pub mod local_llm;
 pub mod local_ngram;
 pub mod mode;
 pub mod model_downloader;
+pub mod model_scanner;
 pub mod override_manager;
 pub mod retry;
 pub mod token_counter;
@@ -34,6 +35,7 @@ pub use model_downloader::{
     ModelDownloadManager, DEFAULT_MODEL_NAME, DEFAULT_MODEL_SHA256, DEFAULT_MODEL_SIZE_BYTES,
     DEFAULT_MODEL_URL,
 };
+pub use model_scanner::{scan_local_models, ModelCandidate, ModelSource};
 pub use override_manager::OverrideManager;
 pub use token_counter::TokenCounter;
 pub use warmup::{WarmupOrchestrator, WarmupStatus};
