@@ -41,7 +41,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/llmime-macos-${{ github.ref_name }}-arm64.zip
-          draft: true
+          draft: false
           prerelease: ${{ !startsWith(github.ref_name, 'v1.') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
