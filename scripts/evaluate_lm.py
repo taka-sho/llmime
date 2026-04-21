@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import subprocess
 import sys
 from collections import defaultdict
@@ -304,6 +305,15 @@ def load_testset(path: Path, category_filter: str = "") -> list[TestItem]:
     return items
 
 
+def _alias_correct(candidate: str, item: TestItem, aliases: dict[str, list[str]]) -> bool:
+    """Return True if candidate matches expected or an idiom alias."""
+    if candidate == item.expected:
+        return True
+    if item.category == "idiom":
+        return candidate in aliases.get(item.reading, [])
+    return False
+
+
 def evaluate(
     items: list[TestItem],
     index: MozcReadingIndex,
@@ -311,6 +321,7 @@ def evaluate(
     top_k: int,
     verbose: bool,
     beam_width: int = 16,
+    idiom_aliases: Optional[dict[str, list[str]]] = None,
 ) -> list[EvalResult]:
     """Hybrid evaluation:
     - Direct lookup (A/B/C/D/E categories): lookup(reading) → batch LM scoring
@@ -366,6 +377,7 @@ def evaluate(
         return any("\u4e00" <= c <= "\u9fff" for c in s)
 
     # Phase 3: rerank each item
+    _aliases: dict[str, list[str]] = idiom_aliases or {}
     results = []
     for item, cands, (start, end) in zip(items, item_cands, slice_bounds):
         item_scores = all_scores[start:end]
@@ -392,13 +404,15 @@ def evaluate(
         if not top_candidates:
             top_candidates = [item.reading]
 
-        top1_correct = top_candidates[0] == item.expected
-        top5_correct = item.expected in top_candidates
+        top1_correct = _alias_correct(top_candidates[0], item, _aliases)
+        top5_correct = any(_alias_correct(c, item, _aliases) for c in top_candidates)
 
         if verbose and not top1_correct:
+            aliases_for_item = _aliases.get(item.reading, []) if item.category == "idiom" else []
+            alias_info = f" aliases={aliases_for_item}" if aliases_for_item else ""
             print(
                 f"[MISS] cat={item.category} reading={item.reading} "
-                f"expected={item.expected} got={top_candidates[0]}",
+                f"expected={item.expected} got={top_candidates[0]}{alias_info}",
                 file=sys.stderr,
             )
 
@@ -543,6 +557,7 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--category-filter", default="")
+    parser.add_argument("--idiom-aliases", type=Path, dest="idiom_aliases", default=None)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -572,7 +587,16 @@ def main() -> None:
     items = load_testset(args.testset, args.category_filter)
     print(f"[INFO] Loaded {len(items)} test items.", file=sys.stderr)
 
-    results = evaluate(items, index, lm, args.top_k, args.verbose)
+    idiom_aliases: dict[str, list[str]] = {}
+    if args.idiom_aliases:
+        if not args.idiom_aliases.exists():
+            print(f"[ERROR] idiom-aliases file not found: {args.idiom_aliases}", file=sys.stderr)
+            sys.exit(1)
+        with open(args.idiom_aliases, encoding="utf-8") as f:
+            idiom_aliases = json.load(f)
+        print(f"[INFO] Loaded {len(idiom_aliases)} idiom alias entries.", file=sys.stderr)
+
+    results = evaluate(items, index, lm, args.top_k, args.verbose, idiom_aliases=idiom_aliases)
 
     metrics = compute_metrics(results)
     print(f"[INFO] M1={metrics['m1']}%  M2={metrics['m2']}%", file=sys.stderr)
