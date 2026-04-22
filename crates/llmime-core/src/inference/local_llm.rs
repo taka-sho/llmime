@@ -12,7 +12,11 @@ use crate::inference::{
     capabilities::InferencerCapabilities,
     error::InferenceError,
     inferencer::{CandidateWithScore, Inferencer},
-    memory_estimator::{check_memory_for_model, show_memory_warning_dialog, MemoryCheckResult},
+};
+
+#[cfg(feature = "local-llm")]
+use crate::inference::memory_estimator::{
+    check_memory_for_model, show_memory_warning_dialog, MemoryCheckResult,
 };
 
 #[cfg(any(feature = "local-llm", test))]
