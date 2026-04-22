@@ -4,7 +4,8 @@ use std::time::Duration;
 use crate::config::LlmimeConfig;
 use crate::inference::{
     fallback_chain::FallbackChain, inferencer::DynInferencer, local_llm::LocalLlmInferencer,
-    local_ngram::LocalNgramInferencer, mode::InputMode, workers_ai::WorkersAIInferencer,
+    local_ngram::LocalNgramInferencer, mode::InputMode, ollama::OllamaInferencer,
+    workers_ai::WorkersAIInferencer,
 };
 
 pub fn default_fallback_chain(mode: InputMode, cfg: &LlmimeConfig) -> FallbackChain {
@@ -30,6 +31,13 @@ pub fn default_fallback_chain(mode: InputMode, cfg: &LlmimeConfig) -> FallbackCh
             };
             FallbackChain::new(local_llm, vec![ngram], Duration::from_millis(800))
         }
+        InputMode::Ollama => {
+            let ollama: DynInferencer = Arc::new(OllamaInferencer::new(
+                cfg.ollama.endpoint.clone(),
+                cfg.ollama.model.clone(),
+            ));
+            FallbackChain::new(ollama, vec![ngram], Duration::from_millis(500))
+        }
         // Hybrid: callers must resolve via ModeManager::effective_mode() first.
         // Unresolved Hybrid uses Privacy-safe ngram-only chain (NF-032).
         InputMode::Hybrid => FallbackChain::new(ngram, vec![], Duration::MAX),
@@ -38,7 +46,7 @@ pub fn default_fallback_chain(mode: InputMode, cfg: &LlmimeConfig) -> FallbackCh
 
 #[cfg(test)]
 fn make_test_config(account_id: &str, api_token: &str) -> LlmimeConfig {
-    use crate::config::{LocalLlmConfig, WorkersAIConfig};
+    use crate::config::{LocalLlmConfig, OllamaConfig, WorkersAIConfig};
     LlmimeConfig {
         workers_ai: WorkersAIConfig {
             account_id: account_id.to_string(),
@@ -50,6 +58,7 @@ fn make_test_config(account_id: &str, api_token: &str) -> LlmimeConfig {
             cost_limit_day: 1.00,
         },
         local_llm: LocalLlmConfig::default(),
+        ollama: OllamaConfig::default(),
         mode: InputMode::Privacy,
     }
 }

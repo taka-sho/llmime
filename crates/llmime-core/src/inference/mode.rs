@@ -11,6 +11,7 @@ pub enum InputMode {
     Privacy,
     Performance,
     Pro,
+    Ollama,
     Hybrid,
 }
 
@@ -22,6 +23,7 @@ impl FromStr for InputMode {
             "privacy" => Ok(InputMode::Privacy),
             "performance" => Ok(InputMode::Performance),
             "pro" => Ok(InputMode::Pro),
+            "ollama" => Ok(InputMode::Ollama),
             "hybrid" => Ok(InputMode::Hybrid),
             other => Err(format!("unknown input_mode: {}", other)),
         }

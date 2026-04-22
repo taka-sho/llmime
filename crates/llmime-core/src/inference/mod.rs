@@ -13,6 +13,7 @@ pub mod memory_estimator;
 pub mod mode;
 pub mod model_downloader;
 pub mod model_scanner;
+pub mod ollama;
 pub mod override_manager;
 pub mod retry;
 pub mod token_counter;
@@ -38,6 +39,7 @@ pub use model_downloader::{
     DEFAULT_MODEL_URL,
 };
 pub use model_scanner::{scan_local_models, ModelCandidate, ModelSource};
+pub use ollama::OllamaInferencer;
 pub use override_manager::OverrideManager;
 pub use token_counter::TokenCounter;
 pub use warmup::{WarmupOrchestrator, WarmupStatus};

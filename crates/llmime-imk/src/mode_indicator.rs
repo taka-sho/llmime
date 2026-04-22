@@ -74,6 +74,7 @@ fn mode_icon(mode: InputMode) -> &'static str {
         // Hybrid is always resolved to Privacy or Performance before reaching here,
         // but fall back to Privacy (safe side) if it somehow arrives.
         InputMode::Hybrid => "🔒",
+        InputMode::Ollama => "🦙",
     }
 }
 

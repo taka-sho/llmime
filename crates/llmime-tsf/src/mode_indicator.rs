@@ -42,6 +42,7 @@ impl ModeIndicator {
             InputMode::Privacy => "P",
             InputMode::Performance | InputMode::Pro => "C",
             InputMode::Hybrid => "H",
+            InputMode::Ollama => "L",
         }
     }
 

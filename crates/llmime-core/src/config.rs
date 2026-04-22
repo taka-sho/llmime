@@ -45,9 +45,30 @@ pub struct LocalLlmConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct OllamaConfig {
+    pub endpoint: String,
+    pub model: String,
+}
+
+impl OllamaConfig {
+    const DEFAULT_ENDPOINT: &'static str = "http://localhost:11434";
+    const DEFAULT_MODEL: &'static str = "qwen2.5:1.5b";
+}
+
+impl Default for OllamaConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: OllamaConfig::DEFAULT_ENDPOINT.to_owned(),
+            model: OllamaConfig::DEFAULT_MODEL.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LlmimeConfig {
     pub workers_ai: WorkersAIConfig,
     pub local_llm: LocalLlmConfig,
+    pub ollama: OllamaConfig,
     pub mode: InputMode,
 }
 
@@ -56,6 +77,7 @@ pub struct LlmimeConfig {
 struct RawConfig {
     workers_ai: Option<RawWorkersAI>,
     local_llm: Option<RawLocalLlm>,
+    ollama: Option<RawOllama>,
     input_mode: Option<String>,
 }
 
@@ -76,6 +98,12 @@ struct RawLocalLlm {
     model_search_paths: Option<Vec<PathBuf>>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct RawOllama {
+    endpoint: Option<String>,
+    model: Option<String>,
+}
+
 impl LlmimeConfig {
     /// Load config with priority: env vars > config.toml > defaults.
     /// Also loads .env.local via dotenvy before reading env vars.
@@ -88,6 +116,7 @@ impl LlmimeConfig {
         let raw = Self::load_toml_file()?;
         let raw_wai = raw.workers_ai.unwrap_or_default();
         let raw_local = raw.local_llm.unwrap_or_default();
+        let raw_ollama = raw.ollama.unwrap_or_default();
 
         let account_id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
             .ok()
@@ -148,6 +177,16 @@ impl LlmimeConfig {
             local_llm: LocalLlmConfig {
                 model_path: raw_local.model_path,
                 model_search_paths: raw_local.model_search_paths.unwrap_or_default(),
+            },
+            ollama: OllamaConfig {
+                endpoint: std::env::var("OLLAMA_ENDPOINT")
+                    .ok()
+                    .or(raw_ollama.endpoint)
+                    .unwrap_or_else(|| OllamaConfig::DEFAULT_ENDPOINT.to_owned()),
+                model: std::env::var("OLLAMA_MODEL")
+                    .ok()
+                    .or(raw_ollama.model)
+                    .unwrap_or_else(|| OllamaConfig::DEFAULT_MODEL.to_owned()),
             },
             mode,
         })
