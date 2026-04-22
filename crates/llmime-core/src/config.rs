@@ -310,8 +310,8 @@ impl SettingsSnapshot {
             }
         }
 
-        let serialized = toml::to_string_pretty(&table)
-            .map_err(|e| ConfigError::InvalidValue(e.to_string()))?;
+        let serialized =
+            toml::to_string_pretty(&table).map_err(|e| ConfigError::InvalidValue(e.to_string()))?;
         std::fs::write(&path, serialized)?;
         Ok(())
     }
