@@ -30,6 +30,9 @@ determine_overall = mod.determine_overall
 load_testset = mod.load_testset
 render_report = mod.render_report
 MozcReadingIndex = mod.MozcReadingIndex
+_alias_correct = mod._alias_correct
+CirResult = mod.CirResult
+compute_cir_metrics = mod.compute_cir_metrics
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -298,4 +301,83 @@ class TestMozcReadingIndex:
         idx = MozcReadingIndex(d)
         assert idx.lookup("たべる") == [("食べる", 4000)]
 
+
+# ── _alias_correct ────────────────────────────────────────────────────────────
+
+class TestAliasCorrect:
+    ALIASES = {
+        "きをつかう": ["気を使う", "気を遣う"],
+        "しかたがない": ["仕方がない", "仕方が無い"],
+    }
+
+    def _idiom_item(self, reading: str, expected: str) -> TestItem:
+        return TestItem(category="idiom", reading=reading, expected=expected)
+
+    def _general_item(self, reading: str, expected: str) -> TestItem:
+        return TestItem(category="general", reading=reading, expected=expected)
+
+    def test_exact_match_idiom(self):
+        item = self._idiom_item("きをつかう", "気を使う")
+        assert _alias_correct("気を使う", item, self.ALIASES) is True
+
+    def test_alias_match_idiom(self):
+        item = self._idiom_item("きをつかう", "気を使う")
+        assert _alias_correct("気を遣う", item, self.ALIASES) is True
+
+    def test_alias_no_match_wrong_surface(self):
+        item = self._idiom_item("きをつかう", "気を使う")
+        assert _alias_correct("気をつかう", item, self.ALIASES) is False
+
+    def test_alias_not_applied_to_non_idiom(self):
+        item = self._general_item("きをつかう", "気を使う")
+        assert _alias_correct("気を遣う", item, self.ALIASES) is False
+
+    def test_empty_aliases_exact_still_works(self):
+        item = self._idiom_item("しかたがない", "仕方がない")
+        assert _alias_correct("仕方がない", item, {}) is True
+
+    def test_empty_aliases_alias_fails(self):
+        item = self._idiom_item("しかたがない", "仕方がない")
+        assert _alias_correct("仕方が無い", item, {}) is False
+
+    def test_reading_not_in_aliases(self):
+        item = self._idiom_item("いっせきにちょう", "一石二鳥")
+        assert _alias_correct("一石二鳥", item, self.ALIASES) is True
+        assert _alias_correct("一石二鵜", item, self.ALIASES) is False
+
+
+# ── compute_cir_metrics ───────────────────────────────────────────────────────
+
+def _make_cir_result(category: str, expected: str, raw: list[str]) -> CirResult:
+    item = TestItem(category=category, reading="dummy", expected=expected)
+    return CirResult(item=item, raw_candidates=raw)
+
+
+class TestComputeCirMetrics:
+    def test_expected_in_top20(self):
+        # expected at rank 1: all CIR thresholds pass
+        raw = ["食べる"] + [f"候補{i}" for i in range(159)]
+        results = [_make_cir_result("general", "食べる", raw)]
+        m = compute_cir_metrics(results)
+        assert m["overall"]["CIR@20"] == 100.0
+        assert m["overall"]["CIR@80"] == 100.0
+        assert m["overall"]["CIR@160"] == 100.0
+
+    def test_expected_at_position_50(self):
+        # expected at index 50 (rank 51): misses CIR@20, hits CIR@80 and CIR@160
+        raw = [f"候補{i}" for i in range(50)] + ["食べる"] + [f"X{i}" for i in range(109)]
+        results = [_make_cir_result("general", "食べる", raw)]
+        m = compute_cir_metrics(results)
+        assert m["overall"]["CIR@20"] == 0.0
+        assert m["overall"]["CIR@80"] == 100.0
+        assert m["overall"]["CIR@160"] == 100.0
+
+    def test_expected_not_in_top160(self):
+        # expected absent from all candidates: all CIR = 0%
+        raw = [f"候補{i}" for i in range(200)]
+        results = [_make_cir_result("general", "食べる", raw)]
+        m = compute_cir_metrics(results)
+        assert m["overall"]["CIR@20"] == 0.0
+        assert m["overall"]["CIR@80"] == 0.0
+        assert m["overall"]["CIR@160"] == 0.0
 
