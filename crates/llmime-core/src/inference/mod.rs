@@ -29,12 +29,13 @@ pub use inferencer::{CandidateSource, CandidateWithScore, DynInferencer, Inferen
 pub use latency_tracker::LatencyTracker;
 pub use local_llm::LocalLlmInferencer;
 pub use local_ngram::LocalNgramInferencer;
+pub use memory_estimator::{check_memory_for_model, MemoryCheckResult};
+pub use mode::{InputMode, ModeManager};
 pub use model_downloader::{
     default_models_dir, resolve_model_path, DefaultModelConfig, DownloadError, DownloadProgress,
     ModelDownloadManager, DEFAULT_MODEL_NAME, DEFAULT_MODEL_SHA256, DEFAULT_MODEL_SIZE_BYTES,
     DEFAULT_MODEL_URL,
 };
-pub use mode::{InputMode, ModeManager};
 pub use override_manager::OverrideManager;
 pub use token_counter::TokenCounter;
 pub use warmup::{WarmupOrchestrator, WarmupStatus};
