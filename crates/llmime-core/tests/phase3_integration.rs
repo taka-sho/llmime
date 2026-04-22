@@ -92,9 +92,7 @@ async fn scenario_3_performance_timeout_fallback() {
 #[tokio::test]
 async fn scenario_4_pro_mode_routing() {
     let ngram = Arc::new(LocalNgramInferencer::new_in_memory());
-    let local_llm = Arc::new(LocalLlmInferencer::new(Some(std::path::PathBuf::from(
-        "/stub/model",
-    ))));
+    let local_llm = Arc::new(LocalLlmInferencer::new_unavailable());
     let dispatcher = Dispatcher::new(ngram, None, Some(local_llm));
 
     let selected = dispatcher.select_inferencer(InputMode::Pro, 30);
