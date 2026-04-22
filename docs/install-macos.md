@@ -109,6 +109,28 @@ llmime には2つの権限が必要です。
 
 ---
 
+## 5.1 Workers AI モード（オプション）
+
+デフォルトは N-gram モード（オフライン）です。Cloudflare Workers AI を使用するには API キーが必要です。
+
+> **注意**: macOS IMK は環境変数を継承しないため、**必ず `config.toml` に記載**してください。
+
+```bash
+# 設定ファイルを作成
+mkdir -p ~/Library/Application\ Support/llmime
+cat > ~/Library/Application\ Support/llmime/config.toml << 'EOF'
+[workers_ai]
+account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+api_token   = "YOUR_CLOUDFLARE_API_TOKEN"
+
+input_mode = "performance"
+EOF
+```
+
+Cloudflare ダッシュボード → Workers & Pages で Account ID を確認、API トークンは「Workers AI 読み取り」権限で発行してください。
+
+---
+
 ## 6. アンインストール
 
 ```bash

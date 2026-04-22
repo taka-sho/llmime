@@ -236,19 +236,48 @@ input_mode = "privacy"
 
 ### 5.2 Workers AI モード（performance）
 
-```toml
-input_mode = "performance"
+**前提**: Cloudflare Workers AI の Account ID と API Token が必要（Workers AI Read 権限）。
+
+#### ⚠️ zip 配布版ユーザー向け: config.toml を手動作成すること
+
+> **重要**: macOS IMK は `UserEventAgent` プロセスとして動作するため、**Terminal で設定した環境変数は IMK に継承されない**。
+> zip 配布版では API キーは必ず `config.toml` に記載する必要がある。
+
+**設定ファイルのパス (macOS)**:
 ```
+~/Library/Application Support/llmime/config.toml
+```
+
+**手順**:
 
 ```bash
-# 環境変数でも設定可能
-export CLOUDFLARE_ACCOUNT_ID="your_account_id"
-export CLOUDFLARE_API_TOKEN="your_api_token"
-export LLMIME_INPUT_MODE="performance"
+# 1. 設定ディレクトリを作成
+mkdir -p ~/Library/Application\ Support/llmime
+
+# 2. config.toml を作成（テンプレートからコピーするか手動作成）
+cat > ~/Library/Application\ Support/llmime/config.toml << 'EOF'
+[workers_ai]
+account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+api_token   = "YOUR_CLOUDFLARE_API_TOKEN"
+
+input_mode = "performance"
+EOF
 ```
 
-**前提**: Cloudflare Workers AI の Account ID と API Token が必要（Workers AI Read 権限）。
-**確認**: 長いフレーズ（15 トークン以上）の変換でクラウド LLM による候補リランキングが動作することを確認。
+`YOUR_CLOUDFLARE_ACCOUNT_ID` と `YOUR_CLOUDFLARE_API_TOKEN` を実際の値に置き換える。
+Cloudflare ダッシュボード → Workers & Pages → Account ID、API トークンは「Workers AI 読み取り」権限で作成。
+
+**動作確認**: config.toml 作成後、llmime の入力モードを切り替えると Workers AI モードが有効になる。長いフレーズ（15 トークン以上）の変換でクラウド LLM による候補リランキングが動作することを確認。
+
+---
+
+> **ソースビルド版 (開発者向け)**: Terminal から直接実行する場合は環境変数も使用可能。
+> ```bash
+> export CLOUDFLARE_ACCOUNT_ID="your_account_id"
+> export CLOUDFLARE_API_TOKEN="your_api_token"
+> export LLMIME_INPUT_MODE="performance"
+> ```
+> ただし IMK として動作する場合は config.toml が必要。
 
 > API キー未設定時はフォールバックとして N-gram モードが使われる（変換は継続する）。
 
