@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::inference::InputMode;
+use crate::inference::{scan_local_models, InputMode};
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -41,6 +41,7 @@ impl WorkersAIConfig {
 #[derive(Debug, Clone, Default)]
 pub struct LocalLlmConfig {
     pub model_path: Option<PathBuf>,
+    pub model_search_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ struct RawWorkersAI {
 #[derive(Debug, Deserialize, Default)]
 struct RawLocalLlm {
     model_path: Option<PathBuf>,
+    model_search_paths: Option<Vec<PathBuf>>,
 }
 
 impl LlmimeConfig {
@@ -145,6 +147,7 @@ impl LlmimeConfig {
             },
             local_llm: LocalLlmConfig {
                 model_path: raw_local.model_path,
+                model_search_paths: raw_local.model_search_paths.unwrap_or_default(),
             },
             mode,
         })
@@ -158,6 +161,23 @@ impl LlmimeConfig {
         let content = std::fs::read_to_string(&path)?;
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw)
+    }
+
+    /// Auto-detect a local GGUF model: explicit config path first, then scan well-known dirs.
+    pub fn detect_local_model(&self) -> Option<PathBuf> {
+        if let Some(ref p) = self.local_llm.model_path {
+            return Some(p.clone());
+        }
+        let candidates = scan_local_models(&self.local_llm.model_search_paths);
+        if let Some(first) = candidates.into_iter().next() {
+            eprintln!(
+                "[llmime] auto-detected local model: {} ({})",
+                first.filename,
+                first.path.display()
+            );
+            return Some(first.path);
+        }
+        None
     }
 
     fn config_path() -> PathBuf {
