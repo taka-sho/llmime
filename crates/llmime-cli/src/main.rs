@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
+use llmime_core::inference::{CandidateSource, CandidateWithScore};
 use llmime_core::{
     Inferencer, KenLMModel, LanguageModel, LlmimePaths, LocalLlmInferencer, MozcReadingIndex,
     NgramScorer, ReadingIndex, Scorer, VibratoTokenizer, ViterbiLattice,
 };
-use llmime_core::inference::{CandidateSource, CandidateWithScore};
 
 #[derive(Parser)]
 #[command(name = "llmime", about = "LLM-powered Japanese IME")]
@@ -384,9 +384,12 @@ mod tests {
         let mut cmd = assert_cmd::Command::cargo_bin("llmime").unwrap();
         cmd.args([
             "rerank",
-            "--mode", "local-llm",
-            "--reading", "とうきょう",
-            "--candidates", r#"["東京","投京"]"#,
+            "--mode",
+            "local-llm",
+            "--reading",
+            "とうきょう",
+            "--candidates",
+            r#"["東京","投京"]"#,
         ])
         .env_remove("LLMIME_LOCAL_MODEL")
         .assert()
