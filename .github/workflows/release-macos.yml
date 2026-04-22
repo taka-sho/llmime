@@ -1,0 +1,47 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    env:
+      ARCH: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build binary
+        run: cargo build -p llmime-imk --release --target "$ARCH"
+
+      - name: Package .app bundle
+        run: |
+          bash scripts/package_macos.sh ${{ github.ref_name }} "$ARCH"
+
+      # Optional: codesign (requires CODESIGN_IDENTITY secret)
+      - name: Codesign (optional)
+        if: ${{ env.CODESIGN_IDENTITY != '' }}
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        run: bash scripts/codesign_macos.sh dist/llmime.app
+
+      - name: Create .zip artifact
+        run: |
+          cd dist
+          zip -r llmime-macos-${{ github.ref_name }}-arm64.zip llmime.app
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/llmime-macos-${{ github.ref_name }}-arm64.zip
+          draft: false
+          prerelease: ${{ !startsWith(github.ref_name, 'v1.') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
