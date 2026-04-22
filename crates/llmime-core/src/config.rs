@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::inference::{scan_local_models, InputMode};
@@ -42,6 +42,7 @@ impl WorkersAIConfig {
 pub struct LocalLlmConfig {
     pub model_path: Option<PathBuf>,
     pub model_search_paths: Vec<PathBuf>,
+    pub ollama_endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +97,7 @@ struct RawWorkersAI {
 struct RawLocalLlm {
     model_path: Option<PathBuf>,
     model_search_paths: Option<Vec<PathBuf>>,
+    ollama_endpoint: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -177,6 +179,7 @@ impl LlmimeConfig {
             local_llm: LocalLlmConfig {
                 model_path: raw_local.model_path,
                 model_search_paths: raw_local.model_search_paths.unwrap_or_default(),
+                ollama_endpoint: raw_local.ollama_endpoint,
             },
             ollama: OllamaConfig {
                 endpoint: std::env::var("OLLAMA_ENDPOINT")
@@ -219,11 +222,98 @@ impl LlmimeConfig {
         None
     }
 
-    fn config_path() -> PathBuf {
+    pub fn config_path() -> PathBuf {
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| dirs::config_dir().unwrap_or_else(|| PathBuf::from("~/.config")));
         base.join("llmime").join("config.toml")
+    }
+}
+
+/// Subset of config readable/writable without API keys — used by the settings UI.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SettingsSnapshot {
+    #[serde(default)]
+    pub input_mode: Option<String>,
+    #[serde(default)]
+    pub local_llm: SettingsLocalLlm,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SettingsLocalLlm {
+    pub model_path: Option<PathBuf>,
+    pub ollama_endpoint: Option<String>,
+}
+
+impl SettingsSnapshot {
+    /// Read local_llm + input_mode from config.toml (no API key required).
+    pub fn load() -> Result<Self, ConfigError> {
+        let path = LlmimeConfig::config_path();
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        // Parse only the fields we care about
+        let raw: RawConfig = toml::from_str(&content)?;
+        let raw_local = raw.local_llm.unwrap_or_default();
+        Ok(SettingsSnapshot {
+            input_mode: raw.input_mode,
+            local_llm: SettingsLocalLlm {
+                model_path: raw_local.model_path,
+                ollama_endpoint: raw_local.ollama_endpoint,
+            },
+        })
+    }
+
+    /// Merge this snapshot into config.toml, preserving other fields (workers_ai etc.).
+    pub fn save(&self) -> Result<(), ConfigError> {
+        let path = LlmimeConfig::config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Read existing TOML as a generic Value so we don't lose unknown keys
+        let mut table: toml::Table = if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            toml::from_str(&content).unwrap_or_default()
+        } else {
+            toml::Table::new()
+        };
+
+        // Patch input_mode
+        if let Some(ref mode) = self.input_mode {
+            table.insert("input_mode".to_string(), toml::Value::String(mode.clone()));
+        } else {
+            table.remove("input_mode");
+        }
+
+        // Patch local_llm section
+        let local_table = table
+            .entry("local_llm")
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        if let toml::Value::Table(ref mut lt) = local_table {
+            if let Some(ref p) = self.local_llm.model_path {
+                lt.insert(
+                    "model_path".to_string(),
+                    toml::Value::String(p.to_string_lossy().into_owned()),
+                );
+            } else {
+                lt.remove("model_path");
+            }
+            if let Some(ref ep) = self.local_llm.ollama_endpoint {
+                lt.insert(
+                    "ollama_endpoint".to_string(),
+                    toml::Value::String(ep.clone()),
+                );
+            } else {
+                lt.remove("ollama_endpoint");
+            }
+        }
+
+        let serialized =
+            toml::to_string_pretty(&table).map_err(|e| ConfigError::InvalidValue(e.to_string()))?;
+        std::fs::write(&path, serialized)?;
+        Ok(())
     }
 }
 
