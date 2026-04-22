@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "macOS Input Method Kit integration for llmime"
 
+[[bin]]
+name = "llmime"
+path = "src/main.rs"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

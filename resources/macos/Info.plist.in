@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.takasho.llmime</string>
+
+    <key>CFBundleExecutable</key>
+    <string>llmime</string>
+
+    <key>CFBundleName</key>
+    <string>llmime</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>llmime</string>
+
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleSignature</key>
+    <string>????</string>
+
+    <key>NSPrincipalClass</key>
+    <string>LlmimeIMController</string>
+
+    <key>InputMethodConnectionName</key>
+    <string>com.takasho.llmime_Connection</string>
+
+    <key>InputMethodServerControllerClass</key>
+    <string>LlmimeIMController</string>
+
+    <key>ComponentInputModeDict</key>
+    <dict>
+        <key>tsInputModeListKey</key>
+        <dict>
+            <key>com.apple.inputmethod.Japanese</key>
+            <dict>
+                <key>tsInputModeDefaultStateKey</key>
+                <integer>1</integer>
+                <key>tsInputModeKeyEquivalentModifiersKey</key>
+                <integer>0</integer>
+                <key>tsInputModePrimaryInScriptKey</key>
+                <integer>1</integer>
+                <key>tsInputModeScriptKey</key>
+                <integer>1</integer>
+            </dict>
+            <key>com.apple.inputmethod.Japanese.Katakana</key>
+            <dict>
+                <key>tsInputModeDefaultStateKey</key>
+                <integer>0</integer>
+                <key>tsInputModeKeyEquivalentModifiersKey</key>
+                <integer>0</integer>
+                <key>tsInputModePrimaryInScriptKey</key>
+                <integer>0</integer>
+                <key>tsInputModeScriptKey</key>
+                <integer>1</integer>
+            </dict>
+            <key>com.apple.inputmethod.Japanese.HalfWidthKana</key>
+            <dict>
+                <key>tsInputModeDefaultStateKey</key>
+                <integer>0</integer>
+                <key>tsInputModeKeyEquivalentModifiersKey</key>
+                <integer>0</integer>
+                <key>tsInputModePrimaryInScriptKey</key>
+                <integer>0</integer>
+                <key>tsInputModeScriptKey</key>
+                <integer>1</integer>
+            </dict>
+            <key>com.apple.inputmethod.Roman</key>
+            <dict>
+                <key>tsInputModeDefaultStateKey</key>
+                <integer>0</integer>
+                <key>tsInputModeKeyEquivalentModifiersKey</key>
+                <integer>0</integer>
+                <key>tsInputModePrimaryInScriptKey</key>
+                <integer>0</integer>
+                <key>tsInputModeScriptKey</key>
+                <integer>0</integer>
+            </dict>
+        </dict>
+    </dict>
+
+    <key>LSBackgroundOnly</key>
+    <true/>
+
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 taka-sho. All rights reserved.</string>
+</dict>
+</plist>
