@@ -74,6 +74,24 @@ class EvalResult:
     top5_correct: bool = False
 
 
+@dataclass
+class CirResult:
+    item: TestItem
+    raw_candidates: list[str] = field(default_factory=list)
+
+    @property
+    def cir20(self) -> bool:
+        return self.item.expected in self.raw_candidates[:20]
+
+    @property
+    def cir80(self) -> bool:
+        return self.item.expected in self.raw_candidates[:80]
+
+    @property
+    def cir160(self) -> bool:
+        return self.item.expected in self.raw_candidates[:160]
+
+
 class LanguageModel:
     def __init__(self, model_path: Path):
         self._model_path = model_path
@@ -304,6 +322,108 @@ def _viterbi_by_cost(
             seen.add(joined_nospace)
             result.append((cost, joined_spaces))
     return result
+
+
+def evaluate_cir(
+    items: list[TestItem],
+    index: MozcReadingIndex,
+    beam_width: int = 80,
+) -> list[CirResult]:
+    results = []
+    for item in items:
+        direct = index.lookup(item.reading)
+        if direct:
+            sorted_cands = sorted(direct, key=lambda x: x[1])
+            raw = [surface for surface, _ in sorted_cands]
+        else:
+            viterbi = _viterbi_by_cost(item.reading, index, beam_width=beam_width, top_k=160)
+            raw = [surface for _, surface in viterbi]
+        if not raw:
+            raw = [item.reading]
+        results.append(CirResult(item=item, raw_candidates=raw))
+    return results
+
+
+def compute_cir_metrics(results: list[CirResult]) -> dict:
+    def _rate(rs: list[CirResult], k: int) -> float:
+        if not rs:
+            return 0.0
+        return round(sum(1 for r in rs if r.item.expected in r.raw_candidates[:k]) / len(rs) * 100, 1)
+
+    overall = {
+        "CIR@20": _rate(results, 20),
+        "CIR@80": _rate(results, 80),
+        "CIR@160": _rate(results, 160),
+        "total": len(results),
+    }
+
+    by_cat: dict[str, list[CirResult]] = {}
+    for r in results:
+        by_cat.setdefault(r.item.category, []).append(r)
+
+    per_cat = {
+        cat: {
+            "CIR@20": _rate(cat_res, 20),
+            "CIR@80": _rate(cat_res, 80),
+            "CIR@160": _rate(cat_res, 160),
+            "total": len(cat_res),
+        }
+        for cat, cat_res in by_cat.items()
+    }
+
+    return {"overall": overall, "per_category": per_cat}
+
+
+def render_cir_report(cir_metrics: dict) -> str:
+    overall = cir_metrics["overall"]
+    lines = [
+        "# CIR Report (Candidate Inclusion Rate)",
+        "",
+        "## 全体 CIR",
+        "",
+        "| 指標 | 値 |",
+        "|------|------|",
+        f"| CIR@20  | {overall['CIR@20']}% |",
+        f"| CIR@80  | {overall['CIR@80']}% |",
+        f"| CIR@160 | {overall['CIR@160']}% |",
+        f"| サンプル数 | {overall['total']} |",
+        "",
+        "## カテゴリ別 CIR",
+        "",
+        "| カテゴリ | サンプル数 | CIR@20 | CIR@80 | CIR@160 |",
+        "|---------|----------|--------|--------|---------|",
+    ]
+
+    for cat in CATEGORY_ORDER:
+        cat_m = cir_metrics["per_category"].get(cat)
+        if not cat_m:
+            continue
+        label = CATEGORY_LABELS.get(cat, cat)
+        lines.append(
+            f"| {label} | {cat_m['total']} | {cat_m['CIR@20']}% | {cat_m['CIR@80']}% | {cat_m['CIR@160']}% |"
+        )
+
+    f_m = cir_metrics["per_category"].get("multi_bunsetsu")
+    if f_m:
+        cir80 = f_m["CIR@80"]
+        if cir80 < 30:
+            branch = "F-A分岐（Viterbi tuning）— 候補生成が根本課題"
+        elif cir80 < 70:
+            branch = "F-A → F-B 順次（両方必要）"
+        else:
+            branch = "F-B分岐（rerank tuning）— rerank/LMが課題"
+
+        lines += [
+            "",
+            "## F カテゴリ分岐判定",
+            "",
+            f"- F CIR@20  = {f_m['CIR@20']}%",
+            f"- F CIR@80  = {f_m['CIR@80']}%",
+            f"- F CIR@160 = {f_m['CIR@160']}%",
+            f"- 判定: **{branch}**",
+        ]
+
+    return "\n".join(lines) + "\n"
 
 
 def load_testset(path: Path, category_filter: str = "") -> list[TestItem]:
@@ -580,7 +700,7 @@ def render_report(
 def main() -> None:
     parser = argparse.ArgumentParser(description="N-gram LM accuracy evaluator for llmime")
     parser.add_argument("--testset", required=True, type=Path)
-    parser.add_argument("--model", required=True, type=Path)
+    parser.add_argument("--model", type=Path, default=None)
     parser.add_argument("--mozc-dict", type=Path, dest="mozc_dict", default=None)
     parser.add_argument("--vibrato-dict", type=Path, dest="vibrato_dict", default=None)
     parser.add_argument("--top-k", type=int, default=200)
@@ -589,6 +709,8 @@ def main() -> None:
     parser.add_argument("--category-filter", default="")
     parser.add_argument("--idiom-aliases", type=Path, dest="idiom_aliases", default=None)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--report-cir", action="store_true", dest="report_cir",
+                        help="Measure Candidate Inclusion Rate (pre-rerank) instead of top-1/top-5 accuracy.")
     args = parser.parse_args()
 
     mozc_dir = args.mozc_dict or (
@@ -596,6 +718,34 @@ def main() -> None:
     )
     if mozc_dir is None:
         print("[ERROR] --mozc-dict required (or vendor/mozc_oss must exist)", file=sys.stderr)
+        sys.exit(1)
+    if not mozc_dir.exists():
+        print(f"[ERROR] mozc dict dir not found: {mozc_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[INFO] Loading MozcReadingIndex from {mozc_dir} ...", file=sys.stderr)
+    index = MozcReadingIndex(mozc_dir)
+    print(f"[INFO] MozcReadingIndex loaded ({len(index.map)} unique readings).", file=sys.stderr)
+
+    items = load_testset(args.testset, args.category_filter)
+    print(f"[INFO] Loaded {len(items)} test items.", file=sys.stderr)
+
+    if args.report_cir:
+        cir_results = evaluate_cir(items, index)
+        cir_metrics = compute_cir_metrics(cir_results)
+        overall = cir_metrics["overall"]
+        print(
+            f"[INFO] CIR@20={overall['CIR@20']}%  CIR@80={overall['CIR@80']}%  CIR@160={overall['CIR@160']}%",
+            file=sys.stderr,
+        )
+        report = render_cir_report(cir_metrics)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(report, encoding="utf-8")
+        print(f"[INFO] CIR report written to {args.output}", file=sys.stderr)
+        return
+
+    if args.model is None:
+        print("[ERROR] --model is required when not using --report-cir", file=sys.stderr)
         sys.exit(1)
     if not args.model.exists():
         print(f"[ERROR] Model not found: {args.model}", file=sys.stderr)
@@ -606,16 +756,6 @@ def main() -> None:
     except RuntimeError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
-
-    if not mozc_dir.exists():
-        print(f"[ERROR] mozc dict dir not found: {mozc_dir}", file=sys.stderr)
-        sys.exit(1)
-    print(f"[INFO] Loading MozcReadingIndex from {mozc_dir} ...", file=sys.stderr)
-    index = MozcReadingIndex(mozc_dir)
-    print(f"[INFO] MozcReadingIndex loaded ({len(index.map)} unique readings).", file=sys.stderr)
-
-    items = load_testset(args.testset, args.category_filter)
-    print(f"[INFO] Loaded {len(items)} test items.", file=sys.stderr)
 
     idiom_aliases: dict[str, list[str]] = {}
     if args.idiom_aliases:
