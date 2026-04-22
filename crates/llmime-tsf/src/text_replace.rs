@@ -1,6 +1,18 @@
 //! Selection replacement helpers for TSF.
 //! F-124: use RequestEditSession + ITfRange::SetText semantics.
 
+use llmime_core::{HistoryStore, RerankHistoryEvent, RerankTriggerKind};
+
+/// Metadata for recording a selection re-conversion event in the history DB.
+pub struct SelectionReplaceParams<'a> {
+    pub reading: &'a str,
+    pub initial_surface: &'a str,
+    pub reranked_surface: &'a str,
+    pub left_ctx: &'a str,
+    pub right_ctx: &'a str,
+    pub score_delta: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplaceError(pub String);
 
@@ -52,8 +64,39 @@ pub fn replace_selected_text_via_tsf(
     }
 }
 
+/// Replaces selected text via TSF and records the event in the rerank history DB.
+/// Calls `record_rerank` with `trigger_kind = Selection` unconditionally after replacement.
+pub fn replace_via_tsf_and_record_selection(
+    session: &mut impl TsfEditSession,
+    primary_range: (i32, i32),
+    fallback_range: (i32, i32),
+    params: &SelectionReplaceParams<'_>,
+    store: &dyn HistoryStore,
+) -> ReplaceOutcome {
+    let outcome = replace_selected_text_via_tsf(
+        session,
+        primary_range,
+        fallback_range,
+        params.reranked_surface,
+    );
+    store.record_rerank(&RerankHistoryEvent {
+        reading: params.reading,
+        initial_surface: params.initial_surface,
+        reranked_surface: params.reranked_surface,
+        left_ctx: params.left_ctx,
+        right_ctx: params.right_ctx,
+        trigger_kind: RerankTriggerKind::Selection,
+        score_delta: params.score_delta,
+    });
+    outcome
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use llmime_core::{Candidate, HistoryStore, RerankHistoryEvent, RerankTriggerKind};
+
     use super::*;
 
     #[derive(Default)]
@@ -137,5 +180,45 @@ mod tests {
         assert_eq!(session.begin_count, 1);
         assert_eq!(session.end_count, 1);
         assert_eq!(outcome.undo_entries, 1);
+    }
+
+    #[derive(Default)]
+    struct SpyStore {
+        recorded: Arc<Mutex<Vec<(String, RerankTriggerKind)>>>,
+    }
+
+    impl HistoryStore for SpyStore {
+        fn record_conversion(&self, _: &str, _: &str, _: &str, _: &str) {}
+        fn boost_candidates(&self, _: &str, _: &mut Vec<Candidate>) {}
+        fn reset_all(&self) {}
+        fn record_rerank(&self, event: &RerankHistoryEvent<'_>) {
+            self.recorded
+                .lock()
+                .unwrap()
+                .push((event.initial_surface.to_string(), event.trigger_kind));
+        }
+    }
+
+    #[test]
+    fn record_rerank_called_with_selection_trigger_kind_on_windows() {
+        let mut session = MockSession::default();
+        let store = SpyStore::default();
+        let params = SelectionReplaceParams {
+            reading: "へんかん",
+            initial_surface: "変換",
+            reranked_surface: "返還",
+            left_ctx: "文書の",
+            right_ctx: "作業",
+            score_delta: -0.3,
+        };
+
+        let outcome =
+            replace_via_tsf_and_record_selection(&mut session, (4, 6), (4, 6), &params, &store);
+
+        assert!(!outcome.used_fallback);
+        let recorded = store.recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "変換");
+        assert_eq!(recorded[0].1, RerankTriggerKind::Selection);
     }
 }
