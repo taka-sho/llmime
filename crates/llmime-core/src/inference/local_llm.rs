@@ -14,6 +14,11 @@ use crate::inference::{
     inferencer::{CandidateWithScore, Inferencer},
 };
 
+#[cfg(feature = "local-llm")]
+use crate::inference::memory_estimator::{
+    check_memory_for_model, show_memory_warning_dialog, MemoryCheckResult,
+};
+
 #[cfg(any(feature = "local-llm", test))]
 use crate::inference::inferencer::CandidateSource;
 
@@ -25,7 +30,6 @@ pub struct LocalLlmInferencer {
 
 #[cfg(feature = "local-llm")]
 impl LocalLlmInferencer {
-    /// Creates a stub inferencer that always returns `Unavailable`.
     pub fn new_unavailable() -> Self {
         Self {
             model_path: None,
@@ -33,8 +37,31 @@ impl LocalLlmInferencer {
         }
     }
 
-    /// Loads a GGUF model from `path`. Returns `Err` if the file cannot be loaded.
     pub fn new(path: &Path) -> Result<Self, InferenceError> {
+        match check_memory_for_model(path) {
+            MemoryCheckResult::Insufficient {
+                available_gb,
+                required_gb,
+            } => {
+                let proceed = show_memory_warning_dialog(available_gb, required_gb);
+                if !proceed {
+                    return Err(InferenceError::Unavailable(format!(
+                        "user cancelled: insufficient RAM ({:.1} GB available, {:.1} GB required)",
+                        available_gb, required_gb
+                    )));
+                }
+            }
+            MemoryCheckResult::Warning {
+                available_gb,
+                required_gb,
+            } => {
+                eprintln!(
+                    "INFO: RAM margin thin ({:.1} GB available, {:.1} GB required). Proceeding.",
+                    available_gb, required_gb
+                );
+            }
+            MemoryCheckResult::Ok => {}
+        }
         let model = LlamaModel::load_from_file(path, LlamaParams::default())
             .map_err(|e| InferenceError::Unavailable(format!("model load failed: {e}")))?;
         Ok(Self {

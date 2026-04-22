@@ -9,6 +9,7 @@ pub mod inferencer;
 pub mod latency_tracker;
 pub mod local_llm;
 pub mod local_ngram;
+pub mod memory_estimator;
 pub mod mode;
 pub mod model_downloader;
 pub mod model_scanner;
@@ -29,6 +30,7 @@ pub use inferencer::{CandidateSource, CandidateWithScore, DynInferencer, Inferen
 pub use latency_tracker::LatencyTracker;
 pub use local_llm::LocalLlmInferencer;
 pub use local_ngram::LocalNgramInferencer;
+pub use memory_estimator::{check_memory_for_model, MemoryCheckResult};
 pub use mode::{InputMode, ModeManager};
 pub use model_downloader::{
     default_models_dir, resolve_model_path, DefaultModelConfig, DownloadError, DownloadProgress,
