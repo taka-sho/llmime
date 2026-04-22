@@ -1,11 +1,14 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::inference::inferencer::{CandidateWithScore, DynInferencer};
+use crate::inference::local_llm::LocalLlmInferencer;
+use crate::inference::local_ngram::LocalNgramInferencer;
 
 pub struct FallbackChain {
     primary: DynInferencer,
     fallbacks: Vec<DynInferencer>,
-    timeout: Duration,
+    pub(crate) timeout: Duration,
 }
 
 impl FallbackChain {
@@ -14,6 +17,25 @@ impl FallbackChain {
             primary,
             fallbacks,
             timeout,
+        }
+    }
+
+    /// Creates a LocalLLM → N-gram chain with 500ms timeout (NF-010: no cloud fallback).
+    /// If `model_path` is `None` or the model fails to load, primary returns `Unavailable`
+    /// and all rerankings fall back to N-gram immediately.
+    pub fn new_local_llm_mode(model_path: Option<&std::path::Path>) -> Self {
+        let local_llm: DynInferencer = match model_path {
+            Some(path) => match LocalLlmInferencer::new(path) {
+                Ok(inf) => Arc::new(inf),
+                Err(_) => Arc::new(LocalLlmInferencer::new_unavailable()),
+            },
+            None => Arc::new(LocalLlmInferencer::new_unavailable()),
+        };
+        let ngram: DynInferencer = Arc::new(LocalNgramInferencer::new_in_memory());
+        Self {
+            primary: local_llm,
+            fallbacks: vec![ngram],
+            timeout: Duration::from_millis(500),
         }
     }
 
@@ -31,14 +53,28 @@ impl FallbackChain {
         candidates: Vec<CandidateWithScore>,
         left_context: Option<&str>,
     ) -> Vec<CandidateWithScore> {
-        if let Ok(Ok(v)) = tokio::time::timeout(
+        let primary_result = tokio::time::timeout(
             self.timeout,
             self.primary
                 .rerank(reading, candidates.clone(), left_context),
         )
-        .await
-        {
-            return v;
+        .await;
+
+        match primary_result {
+            Ok(Ok(v)) => return v,
+            Ok(Err(ref e)) => {
+                let fb_name = self.fallbacks.first().map(|f| f.name()).unwrap_or("none");
+                tracing::trace!("{} fallback to {}: {}", self.primary.name(), fb_name, e);
+            }
+            Err(_elapsed) => {
+                let fb_name = self.fallbacks.first().map(|f| f.name()).unwrap_or("none");
+                tracing::trace!(
+                    "{} fallback to {}: timeout (>{}ms)",
+                    self.primary.name(),
+                    fb_name,
+                    self.timeout.as_millis()
+                );
+            }
         }
 
         for fb in &self.fallbacks {
@@ -62,7 +98,7 @@ impl FallbackChain {
         left_context: Option<&str>,
         right_context: Option<&str>,
     ) -> Vec<CandidateWithScore> {
-        if let Ok(Ok(v)) = tokio::time::timeout(
+        let primary_result = tokio::time::timeout(
             self.timeout,
             self.primary.rerank_with_right_context(
                 reading,
@@ -71,9 +107,23 @@ impl FallbackChain {
                 right_context,
             ),
         )
-        .await
-        {
-            return v;
+        .await;
+
+        match primary_result {
+            Ok(Ok(v)) => return v,
+            Ok(Err(ref e)) => {
+                let fb_name = self.fallbacks.first().map(|f| f.name()).unwrap_or("none");
+                tracing::trace!("{} fallback to {}: {}", self.primary.name(), fb_name, e);
+            }
+            Err(_elapsed) => {
+                let fb_name = self.fallbacks.first().map(|f| f.name()).unwrap_or("none");
+                tracing::trace!(
+                    "{} fallback to {}: timeout (>{}ms)",
+                    self.primary.name(),
+                    fb_name,
+                    self.timeout.as_millis()
+                );
+            }
         }
 
         for fb in &self.fallbacks {
@@ -237,5 +287,66 @@ mod tests {
             .await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].surface, "明日の|予報");
+    }
+
+    struct UnavailableInferencer;
+
+    #[async_trait]
+    impl Inferencer for UnavailableInferencer {
+        fn name(&self) -> &'static str {
+            "unavailable"
+        }
+
+        fn capabilities(&self) -> InferencerCapabilities {
+            InferencerCapabilities {
+                supports_rerank: true,
+                supports_right_context: false,
+            }
+        }
+
+        async fn rerank(
+            &self,
+            _reading: &str,
+            _candidates: Vec<CandidateWithScore>,
+            _left_context: Option<&str>,
+        ) -> Result<Vec<CandidateWithScore>, InferenceError> {
+            Err(InferenceError::Unavailable("model not loaded".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_local_llm_unavailable_falls_back_to_ngram() {
+        let chain = FallbackChain::new(
+            Arc::new(UnavailableInferencer),
+            vec![Arc::new(AlwaysSucceedInferencer)],
+            Duration::from_millis(500),
+        );
+        let result = chain.rerank("とうきょう", make_candidates(), None).await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].surface, "東京");
+    }
+
+    #[tokio::test]
+    async fn test_new_local_llm_mode_structure() {
+        let chain = FallbackChain::new_local_llm_mode(None);
+        assert_eq!(chain.primary_name(), "local-llm");
+        assert_eq!(chain.fallback_count(), 1);
+        assert_eq!(chain.timeout, Duration::from_millis(500));
+    }
+
+    #[tokio::test]
+    async fn test_new_local_llm_mode_unavailable_falls_back_to_ngram() {
+        // model_path=None → LocalLlmInferencer::new_unavailable → ngram in-memory serves
+        let chain = FallbackChain::new_local_llm_mode(None);
+        let result = chain.rerank("とうきょう", make_candidates(), None).await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].surface, "東京");
+    }
+
+    #[tokio::test]
+    async fn test_new_local_llm_mode_no_cloud_fallback() {
+        // NF-010: exactly 1 fallback (ngram only, no cloud)
+        let chain = FallbackChain::new_local_llm_mode(None);
+        assert_eq!(chain.fallback_count(), 1);
     }
 }
