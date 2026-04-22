@@ -222,8 +222,34 @@ cost_limit_day = 1.00
 ```
 
 > 環境変数は TOML より常に優先される（`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `LLMIME_INPUT_MODE` 等）。
+>
+> ※ zip配布版ではこの方法は使えません（IMEプロセスに環境変数が継承されないため）。上記の config.toml 方式をご利用ください。
 
-### 5.1 N-gram モード（デフォルト / privacy）
+### 5.1 設定ファイルの準備（zip配布版）
+
+zip配布版では `config.toml` は自動生成されません。初回インストール後、手動で作成してください:
+
+```bash
+mkdir -p ~/Library/Application\ Support/llmime
+cat > ~/Library/Application\ Support/llmime/config.toml << 'EOF'
+[workers_ai]
+api_token = "your-cloudflare-api-token"
+account_id = "your-cloudflare-account-id"
+EOF
+```
+
+設定後、IMEプロセスを再起動してください（いずれか）:
+```bash
+sudo killall -HUP UserEventAgent
+# または再ログイン
+```
+
+> **⚠️ 注意（zip配布版）**: 環境変数 (`WORKERS_AI_API_TOKEN` 等) は
+> IMEプロセス (UserEventAgent 経由起動) に継承されないため **使用できません**。
+> 必ず `config.toml` で設定してください。
+> 環境変数が有効なのは **ソースビルド版のCLI実行時のみ** です。
+
+### 5.2 N-gram モード（デフォルト / privacy）
 
 ```toml
 input_mode = "privacy"
@@ -234,25 +260,28 @@ input_mode = "privacy"
 
 **確認**: llmime で「かんしん」→「関心 / 感心 / 歓心」の候補が表示されることを確認。
 
-### 5.2 Workers AI モード（performance）
+### 5.3 Workers AI モード（performance）
 
 ```toml
 input_mode = "performance"
 ```
 
 ```bash
-# 環境変数でも設定可能
+# 環境変数でも設定可能（ソースビルド版 CLI のみ有効）
 export CLOUDFLARE_ACCOUNT_ID="your_account_id"
 export CLOUDFLARE_API_TOKEN="your_api_token"
 export LLMIME_INPUT_MODE="performance"
 ```
+
+> ※ zip配布版ではこの方法は使えません（IMEプロセスに環境変数が継承されないため）。
+> 上記の config.toml 方式をご利用ください。
 
 **前提**: Cloudflare Workers AI の Account ID と API Token が必要（Workers AI Read 権限）。
 **確認**: 長いフレーズ（15 トークン以上）の変換でクラウド LLM による候補リランキングが動作することを確認。
 
 > API キー未設定時はフォールバックとして N-gram モードが使われる（変換は継続する）。
 
-### 5.3 ローカル LLM モード（pro）
+### 5.4 ローカル LLM モード（pro）
 
 ```toml
 input_mode = "pro"
