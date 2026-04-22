@@ -37,53 +37,84 @@
 
     <key>ComponentInputModeDict</key>
     <dict>
+        <key>TISUnifiedUIForInputMethodEnabling</key>
+        <true/>
         <key>tsInputModeListKey</key>
         <dict>
             <key>com.apple.inputmethod.Japanese</key>
             <dict>
+                <key>TISInputSourceID</key>
+                <string>com.takasho.llmime.Japanese</string>
+                <key>TISIntendedLanguage</key>
+                <string>ja</string>
                 <key>tsInputModeDefaultStateKey</key>
-                <integer>1</integer>
+                <true/>
+                <key>tsInputModeIsVisibleKey</key>
+                <true/>
                 <key>tsInputModeKeyEquivalentModifiersKey</key>
                 <integer>0</integer>
                 <key>tsInputModePrimaryInScriptKey</key>
-                <integer>1</integer>
+                <true/>
                 <key>tsInputModeScriptKey</key>
                 <integer>1</integer>
             </dict>
             <key>com.apple.inputmethod.Japanese.Katakana</key>
             <dict>
+                <key>TISInputSourceID</key>
+                <string>com.takasho.llmime.Japanese.Katakana</string>
+                <key>TISIntendedLanguage</key>
+                <string>ja</string>
                 <key>tsInputModeDefaultStateKey</key>
-                <integer>0</integer>
+                <false/>
+                <key>tsInputModeIsVisibleKey</key>
+                <true/>
                 <key>tsInputModeKeyEquivalentModifiersKey</key>
                 <integer>0</integer>
                 <key>tsInputModePrimaryInScriptKey</key>
-                <integer>0</integer>
+                <false/>
                 <key>tsInputModeScriptKey</key>
                 <integer>1</integer>
             </dict>
             <key>com.apple.inputmethod.Japanese.HalfWidthKana</key>
             <dict>
+                <key>TISInputSourceID</key>
+                <string>com.takasho.llmime.Japanese.HalfWidthKana</string>
+                <key>TISIntendedLanguage</key>
+                <string>ja</string>
                 <key>tsInputModeDefaultStateKey</key>
-                <integer>0</integer>
+                <false/>
+                <key>tsInputModeIsVisibleKey</key>
+                <false/>
                 <key>tsInputModeKeyEquivalentModifiersKey</key>
                 <integer>0</integer>
                 <key>tsInputModePrimaryInScriptKey</key>
-                <integer>0</integer>
+                <false/>
                 <key>tsInputModeScriptKey</key>
                 <integer>1</integer>
             </dict>
             <key>com.apple.inputmethod.Roman</key>
             <dict>
+                <key>TISInputSourceID</key>
+                <string>com.takasho.llmime.Roman</string>
+                <key>TISIntendedLanguage</key>
+                <string>la</string>
                 <key>tsInputModeDefaultStateKey</key>
-                <integer>0</integer>
+                <false/>
+                <key>tsInputModeIsVisibleKey</key>
+                <false/>
                 <key>tsInputModeKeyEquivalentModifiersKey</key>
                 <integer>0</integer>
                 <key>tsInputModePrimaryInScriptKey</key>
-                <integer>0</integer>
+                <false/>
                 <key>tsInputModeScriptKey</key>
                 <integer>0</integer>
             </dict>
         </dict>
+        <key>tsVisibleInputModeOrderedArrayKey</key>
+        <array>
+            <string>com.apple.inputmethod.Japanese</string>
+            <string>com.apple.inputmethod.Japanese.Katakana</string>
+        </array>
     </dict>
 
     <key>LSBackgroundOnly</key>
