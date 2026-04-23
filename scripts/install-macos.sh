@@ -41,13 +41,28 @@ xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 echo "  完了"
 
 # --- /Library/Input Methods への配置 ---
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+INSTALL_DEST="$INSTALL_DIR/$APP_NAME"
+
+# インストール前: 旧登録を解除 (二重登録防止)
+if [[ -x "$LSREGISTER" ]] && [[ -d "$INSTALL_DEST" ]]; then
+  echo "→ 旧 LS DB 登録を解除中..."
+  "$LSREGISTER" -u "$INSTALL_DEST" 2>/dev/null || true
+  echo "  完了"
+fi
+
 echo "→ $INSTALL_DIR/$APP_NAME にインストールします (sudo 権限が必要です)..."
 sudo cp -R "$APP_PATH" "$INSTALL_DIR/"
 echo "  完了"
 
-# --- UserEventAgent 再起動 (IMK リロード) ---
-echo "→ 入力メソッドサービスをリロードします..."
-killall -HUP UserEventAgent 2>/dev/null || true
+# --- LS DB 再登録 (IMK リロード) ---
+echo "→ LS DB に新バイナリを登録中..."
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -f "$INSTALL_DEST" 2>/dev/null || true
+else
+  echo "[install] WARNING: lsregister 未検出。killall -HUP UserEventAgent にフォールバック"
+  killall -HUP UserEventAgent 2>/dev/null || true
+fi
 sleep 1
 echo "  完了"
 

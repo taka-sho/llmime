@@ -28,6 +28,32 @@ jobs:
         run: |
           bash scripts/package_macos.sh ${{ github.ref_name }} "$ARCH"
 
+      - name: Verify Info.plist required keys
+        run: |
+          PLIST=dist/llmime.app/Contents/Info.plist
+          plutil -lint "$PLIST"
+          for KEY in NSPrincipalClass CFBundleIdentifier CFBundleExecutable \
+                     InputMethodConnectionName tsInputModeListKey \
+                     tsVisibleInputModeOrderedArrayKey; do
+            /usr/libexec/PlistBuddy -c "Print :${KEY}" "$PLIST" || \
+              { echo "ERROR: missing key ${KEY}"; exit 1; }
+          done
+          echo "Info.plist validation passed"
+
+      - name: Verify LS DB not contaminated by dist
+        run: |
+          LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+          if [[ -x "$LSREG" ]]; then
+            COUNT=$("$LSREG" -dump | grep -c "dist/llmime.app" || true)
+            if [[ "$COUNT" -gt 0 ]]; then
+              echo "ERROR: dist/llmime.app is still in LS DB ($COUNT entries)"
+              exit 1
+            fi
+            echo "LS DB clean (0 dist entries)"
+          else
+            echo "WARNING: lsregister not found, skipping LS DB check"
+          fi
+
       # Optional: codesign (requires CODESIGN_IDENTITY secret)
       - name: Codesign (optional)
         if: ${{ env.CODESIGN_IDENTITY != '' }}
