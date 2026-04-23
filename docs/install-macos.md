@@ -131,6 +131,34 @@ killall -HUP UserEventAgent
 を実行してから、システム設定 → キーボード → 入力ソースを再確認してください。
 それでも表示されない場合は一度ログアウト → ログインをお試しください。
 
+### LS DB 二重登録による入力ソース非表示
+
+**症状**: install.sh 実行後も「システム設定 > キーボード > 入力ソース > 追加」に llmime が表示されない。
+
+**原因**: dev build の `dist/llmime.app` とインストール済みの `~/Library/Input Methods/llmime.app` が
+同じ `CFBundleIdentifier (com.takasho.llmime)` で Launch Services DB (LS DB) に登録されていると、
+TIS フレームワークが片方を非表示にする場合があります。
+
+**手動解除手順**:
+
+```bash
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+# 1. 現在の LS DB 状態を確認
+"$LSREG" -dump | grep -A3 "com.takasho.llmime"
+
+# 2. dist/ の登録を解除 (dev build 残骸)
+"$LSREG" -u /path/to/llmime/dist/llmime.app
+
+# 3. インストール済みを再登録
+"$LSREG" -f "$HOME/Library/Input Methods/llmime.app"
+
+# 4. システム再認識を促す
+killall -HUP UserEventAgent || true
+```
+
+再ログインまたは再起動後に入力ソース一覧を確認してください。
+
 ### 変換候補が表示されない
 
 Console.app を開き、検索フィルタに `llmime` と入力してエラーログを確認してください。
