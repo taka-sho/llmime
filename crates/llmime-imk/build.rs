@@ -10,6 +10,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=InputMethodKit");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rustc-link-arg=-ObjC");
         println!("cargo:rerun-if-changed=objc/LlmimeIMController.m");
         println!("cargo:rerun-if-changed=objc/imk_main.m");
     }

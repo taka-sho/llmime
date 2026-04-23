@@ -9,7 +9,7 @@ name = "llmime"
 path = "src/main.rs"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 llmime-core = { path = "../llmime-core" }

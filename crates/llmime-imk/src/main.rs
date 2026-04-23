@@ -1,5 +1,10 @@
+// Force the Rust FFI symbols (called by LlmimeIMController via -ObjC) into the binary.
+// Without this, the lib's rlib is not linked and the symbols are absent at link time.
 #[cfg(target_os = "macos")]
-#[link(name = "llmime_imk_objc", kind = "static")]
+#[used]
+static _LINK_FFI: unsafe extern "C" fn(u64) = llmime_imk::ffi::llmime_imk_session_begin;
+
+#[cfg(target_os = "macos")]
 extern "C" {
     fn llmime_imk_run_main();
 }
