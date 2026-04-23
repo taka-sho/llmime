@@ -42,6 +42,9 @@ echo "  完了"
 
 # --- /Library/Input Methods への配置 ---
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ ! -x "$LSREGISTER" ]]; then
+  LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+fi
 INSTALL_DEST="$INSTALL_DIR/$APP_NAME"
 
 # インストール前: 旧登録を解除 (二重登録防止)
