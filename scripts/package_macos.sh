@@ -50,6 +50,9 @@ printf 'APPL????' > "$CONTENTS/PkgInfo"
 
 # --- LS DB 登録解除 (dist は配布物ではなく作業ファイル — 二重登録防止) ---
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ ! -x "$LSREGISTER" ]]; then
+  LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+fi
 if [[ -x "$LSREGISTER" ]]; then
   echo "[package] LS DB から dist/llmime.app を解除中..."
   "$LSREGISTER" -u "$BUNDLE" 2>/dev/null || true
@@ -61,10 +64,14 @@ fi
 if command -v plutil &>/dev/null; then
   plutil -lint "$CONTENTS/Info.plist" || { echo "[package] ERROR: Info.plist が不正"; exit 1; }
   for KEY in NSPrincipalClass CFBundleIdentifier CFBundleExecutable \
-             InputMethodConnectionName tsInputModeListKey \
-             tsVisibleInputModeOrderedArrayKey; do
+             InputMethodConnectionName; do
     /usr/libexec/PlistBuddy -c "Print :${KEY}" "$CONTENTS/Info.plist" &>/dev/null || \
       { echo "[package] ERROR: 必須キー '${KEY}' が存在しない"; exit 1; }
+  done
+  # tsInputModeListKey / tsVisibleInputModeOrderedArrayKey は ComponentInputModeDict 直下
+  for NESTED_KEY in tsInputModeListKey tsVisibleInputModeOrderedArrayKey; do
+    /usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:${NESTED_KEY}" "$CONTENTS/Info.plist" &>/dev/null || \
+      { echo "[package] ERROR: ComponentInputModeDict.${NESTED_KEY} が存在しない"; exit 1; }
   done
   echo "[package] Info.plist 検証 OK"
 else
