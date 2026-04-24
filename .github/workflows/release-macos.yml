@@ -28,6 +28,29 @@ jobs:
         run: |
           bash scripts/package_macos.sh ${{ github.ref_name }} "$ARCH"
 
+      - name: Verify no dead-strip (nm check)
+        run: |
+          BINARY="dist/llmime.app/Contents/MacOS/llmime"
+          COUNT=$(nm "$BINARY" 2>/dev/null | grep -c '_OBJC_CLASS_\$_LlmimeIMController' || echo 0)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: LlmimeIMController not found in binary — dead-strip detected!"
+            exit 1
+          fi
+          echo "OK: LlmimeIMController found ($COUNT symbol(s))"
+
+      - name: Verify bundle signature (codesign -dvv)
+        run: |
+          BUNDLE="dist/llmime.app"
+          OUTPUT=$(codesign -dvv "$BUNDLE" 2>&1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Identifier=com.takasho.llmime" || \
+            { echo "ERROR: wrong Identifier"; exit 1; }
+          echo "$OUTPUT" | grep -q "Info.plist entries=" || \
+            { echo "ERROR: Info.plist not bound"; exit 1; }
+          echo "$OUTPUT" | grep -q "Sealed Resources version=2" || \
+            { echo "ERROR: Sealed Resources missing"; exit 1; }
+          echo "OK: signature verified"
+
       - name: Verify Info.plist required keys
         run: |
           PLIST=dist/llmime.app/Contents/Info.plist
