@@ -82,6 +82,8 @@ fi
 echo "[package] バンドルを ad-hoc 署名します..."
 codesign --sign - --force --deep "$BUNDLE"
 echo "[package] 署名完了"
+codesign --verify --strict --verbose=2 "$BUNDLE"
+echo "[package] 署名検証 OK"
 
 echo "✅ $BUNDLE を生成しました (version=$VERSION_CLEAN, arch=$ARCH)"
 echo "   サイズ: $(du -sh "$BUNDLE" | cut -f1)"
