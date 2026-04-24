@@ -78,5 +78,10 @@ else
   echo "[package] WARNING: plutil 未検出 (Linux環境では skip)"
 fi
 
+# --- バンドル署名 (ad-hoc, Info.plist を含む完全署名) ---
+echo "[package] バンドルを ad-hoc 署名します..."
+codesign --sign - --force --deep "$BUNDLE"
+echo "[package] 署名完了"
+
 echo "✅ $BUNDLE を生成しました (version=$VERSION_CLEAN, arch=$ARCH)"
 echo "   サイズ: $(du -sh "$BUNDLE" | cut -f1)"
