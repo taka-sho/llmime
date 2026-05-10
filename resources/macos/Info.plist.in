@@ -27,7 +27,7 @@
     <string>????</string>
 
     <key>NSPrincipalClass</key>
-    <string>LlmimeIMController</string>
+    <string>NSApplication</string>
 
     <key>InputMethodConnectionName</key>
     <string>com.takasho.llmime_Connection</string>
